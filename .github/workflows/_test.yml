@@ -42,5 +42,8 @@ jobs:
       - name: Install cloud-init
         run: tests/setup-cloud-init.sh "$CLOUD_INIT"
 
+      - name: Test the datasource
+        run: tests/datasource.sh dist/sc-guest_*_all.deb
+
       - name: Install, remove and purge
         run: tests/lifecycle.sh dist/sc-guest_*_all.deb

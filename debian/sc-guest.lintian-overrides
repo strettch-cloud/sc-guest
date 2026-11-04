@@ -1,3 +1,0 @@
-# The package has no files of its own until the datasource and the
-# password and boot-report units are added. Remove this override then.
-sc-guest: empty-binary-package
