@@ -36,3 +36,21 @@ jobs:
     permissions:
       contents: read
     uses: ./.github/workflows/_test.yml
+
+  # The one check the main branch requires. Checks from reusable workflows are
+  # named after both jobs, and Build's name carries the version, so they can't
+  # be required by name. always(), not !cancelled(): a required check that is
+  # skipped counts as passing, so this job has to run and fail on a cancel too.
+  checks:
+    name: Pull request checks
+    needs: [lint, build, test]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every job to pass
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for result in $RESULTS; do
+            [ "$result" = success ] || { echo "a required job ended with: $result" >&2; exit 1; }
+          done
