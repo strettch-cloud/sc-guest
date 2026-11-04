@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+
+# The sshd drop-in stays: removing it would turn password login off on a VM
+# that may depend on it.
+if [ "$1" = purge ]; then
+    rm -rf /var/lib/sc-guest /run/sc-guest
+fi
+
+#DEBHELPER#

@@ -1,0 +1,3 @@
+src/sc-guest usr/lib/sc-guest/
+systemd/sc-guest-password.service lib/systemd/system/
+systemd/sc-guest-report.service lib/systemd/system/

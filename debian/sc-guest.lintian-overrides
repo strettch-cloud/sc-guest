@@ -1,3 +1,4 @@
-# The package has no files of its own until the datasource and the
-# password and boot-report units are added. Remove this override then.
-sc-guest: empty-binary-package
+# Both units are part of cloud-init's boot, so like cloud-init's own units
+# they run only when cloud-init does.
+sc-guest: systemd-service-file-refers-to-unusual-wantedby-target cloud-init.target [usr/lib/systemd/system/sc-guest-password.service]
+sc-guest: systemd-service-file-refers-to-unusual-wantedby-target cloud-init.target [usr/lib/systemd/system/sc-guest-report.service]

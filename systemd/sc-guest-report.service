@@ -1,0 +1,17 @@
+# Never order this after cloud-final.service: that waits for the customer's
+# scripts, and cloud-final.service is ordered after multi-user.target, which
+# makes a cycle for any unit multi-user.target wants. systemd breaks a cycle
+# by silently dropping a unit.
+[Unit]
+Description=Tell the platform whether the VM finished booting
+Documentation=https://github.com/strettch-cloud/sc-guest
+Wants=network-online.target
+After=network-online.target cloud-init.service cloud-init-network.service sc-guest-password.service
+
+[Service]
+# Started as soon as the process runs, so its retries never hold up the boot.
+Type=exec
+ExecStart=/usr/lib/sc-guest/sc-guest report
+
+[Install]
+WantedBy=cloud-init.target

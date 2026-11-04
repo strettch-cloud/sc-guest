@@ -24,7 +24,11 @@ jobs:
       matrix:
         os: ['ubuntu:22.04', 'ubuntu:24.04', 'debian:12', 'debian:13']
     # Google's mirror of the official images avoids Docker Hub's pull limits.
-    container: mirror.gcr.io/library/${{ matrix.os }}
+    # NET_ADMIN lets the tests put the metadata service's address on the
+    # container's loopback.
+    container:
+      image: mirror.gcr.io/library/${{ matrix.os }}
+      options: --cap-add NET_ADMIN
     env:
       CLOUD_INIT: ${{ inputs.cloud_init }}
     steps:
@@ -44,3 +48,12 @@ jobs:
 
       - name: Install, remove and purge
         run: tests/lifecycle.sh dist/sc-guest_*_all.deb
+
+      - name: Unit ordering
+        run: tests/units.sh dist/sc-guest_*_all.deb
+
+      - name: Password and ack
+        run: tests/password.sh dist/sc-guest_*_all.deb
+
+      - name: Boot report
+        run: tests/report.sh dist/sc-guest_*_all.deb
