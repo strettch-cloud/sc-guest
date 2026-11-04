@@ -1,0 +1,9 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@
+
+# Ubuntu's dpkg compresses with zstd by default. Debian's archive format only
+# allows gz and xz, so xz keeps the package readable everywhere.
+override_dh_builddeb:
+	dh_builddeb -- -Zxz

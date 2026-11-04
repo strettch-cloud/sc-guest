@@ -1,0 +1,46 @@
+# _test.yml - Install the built package on every supported system, with that
+# system's own cloud-init, and run the tests there.
+# Called after _build.yml by pr.yml and nightly.yml; never triggered on its own.
+name: Test Package
+
+on:
+  workflow_call:
+    inputs:
+      cloud_init:
+        description: 'archive: the cloud-init each system ships today. proposed: the update it is about to ship.'
+        required: false
+        type: string
+        default: archive
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.os }} (${{ inputs.cloud_init }} cloud-init)
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ['ubuntu:22.04', 'ubuntu:24.04', 'debian:12', 'debian:13']
+    # Google's mirror of the official images avoids Docker Hub's pull limits.
+    container: mirror.gcr.io/library/${{ matrix.os }}
+    env:
+      CLOUD_INIT: ${{ inputs.cloud_init }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download package
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: package
+          path: dist
+
+      - name: Install cloud-init
+        run: tests/setup-cloud-init.sh "$CLOUD_INIT"
+
+      - name: Install, remove and purge
+        run: tests/lifecycle.sh dist/sc-guest_*_all.deb

@@ -1,0 +1,34 @@
+# nightly.yml - Test against the cloud-init each system is about to ship.
+# Ubuntu releases cloud-init updates, often whole new versions, into its LTS
+# releases, and VMs install them automatically. Each update waits in a
+# proposed pocket first, so a failure here comes before it reaches VMs.
+#
+# GitHub emails a scheduled run's failure to whoever last changed the cron
+# line, and pauses schedules in public repos after 60 days without activity.
+name: Nightly cloud-init check
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_build.yml
+    with:
+      version: 0.0.0-nightly.${{ github.run_number }}
+
+  test:
+    name: Test
+    needs: build
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_test.yml
+    with:
+      cloud_init: proposed

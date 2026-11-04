@@ -1,0 +1,38 @@
+name: Pull Request Validation
+
+# Every base branch, not only main: a pull request stacked on another one
+# targets that one's branch and still needs its checks.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint scripts
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: shellcheck
+        run: shellcheck .github/scripts/*.sh tests/*.sh
+
+  build:
+    name: Build
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_build.yml
+    with:
+      version: 0.0.0-ci.${{ github.run_number }}
+
+  test:
+    name: Test
+    needs: build
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_test.yml

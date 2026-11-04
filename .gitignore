@@ -1,0 +1,13 @@
+# Build output
+/dist/
+
+# Written by .github/scripts/build-deb.sh
+/debian/changelog
+
+# Left by dpkg-buildpackage and debhelper
+/debian/.debhelper/
+/debian/debhelper-build-stamp
+/debian/files
+/debian/*.substvars
+/debian/sc-guest/
+/debian/*.debhelper.log
