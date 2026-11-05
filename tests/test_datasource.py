@@ -161,8 +161,13 @@ class FakeHost(unittest.TestCase):
         patch.start()
         self.addCleanup(patch.stop)
 
+    # ip commands that fail, by their first two arguments.
+    ip_failures = ()
+
     def fake_ip(self, *args):
         self.ip_calls.append(list(args))
+        if list(args[:2]) in self.ip_failures:
+            raise RuntimeError(f"ip {' '.join(args)}: failed")
         return ""
 
     def datasource(self, sys_cfg=None):
@@ -346,6 +351,47 @@ class TestNicAlreadyUp(FakeHost):
                 ["address", "replace", "169.254.10.10/16", "dev", "ens3"],
                 ["address", "del", "169.254.10.10/16", "dev", "ens3"],
             ],
+        )
+
+
+class TestFailedIpCommand(FakeHost):
+    UP = ["link", "set", "dev", "ens3", "up"]
+    ADD = ["address", "replace", "169.254.10.10/16", "dev", "ens3"]
+    REMOVE = ["address", "del", "169.254.10.10/16", "dev", "ens3"]
+    DOWN = ["link", "set", "dev", "ens3", "down"]
+
+    def test_takes_the_nic_down_when_the_address_cannot_be_added(self):
+        self.ip_failures = [["address", "replace"]]
+        with FakeService(document_routes()) as service:
+            with self.assertRaisesRegex(RuntimeError, "^ip address replace"):
+                self.datasource().get_data()
+        self.assertEqual(service.paths(), [])
+        self.assertEqual(self.ip_calls, [self.UP, self.ADD, self.DOWN])
+
+    def test_takes_the_nic_down_when_the_address_cannot_be_removed(self):
+        self.ip_failures = [["address", "del"]]
+        with FakeService(document_routes()):
+            with self.assertRaisesRegex(RuntimeError, "^ip address del"):
+                self.datasource().get_data()
+        self.assertEqual(
+            self.ip_calls, [self.UP, self.ADD, self.REMOVE, self.DOWN]
+        )
+
+    def test_keeps_the_service_error_when_the_address_cannot_be_removed(self):
+        self.ip_failures = [["address", "del"]]
+        routes = document_routes()
+        routes["/v1/metadata.json"] = (503, b'{"code": "NOT_READY"}')
+        with mock.patch.object(metadata, "RETRIES", 0):
+            with FakeService(routes):
+                with self.assertRaisesRegex(
+                    RuntimeError, "^ip address del"
+                ) as raised:
+                    self.datasource().get_data()
+        self.assertIsInstance(
+            raised.exception.__context__, metadata.Unavailable
+        )
+        self.assertEqual(
+            self.ip_calls, [self.UP, self.ADD, self.REMOVE, self.DOWN]
         )
 
 

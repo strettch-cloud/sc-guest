@@ -119,17 +119,23 @@ class DataSourceStrettchCloud(sources.DataSource):
 
 @contextlib.contextmanager
 def _temporary_address(nic):
-    was_up = _is_up(nic)
-    _ip("link", "set", "dev", nic, "up")
-    _ip("address", "replace", TEMPORARY_ADDRESS, "dev", nic)
-    LOG.info("Added temporary address %s to %s", TEMPORARY_ADDRESS, nic)
-    try:
-        yield
-    finally:
-        _ip("address", "del", TEMPORARY_ADDRESS, "dev", nic)
+    # Each change is undone on exit, last first, once it has succeeded. Every
+    # undo runs even if a later change or an earlier undo fails; the first
+    # error stays attached to the one raised.
+    with contextlib.ExitStack() as undo:
+        was_up = _is_up(nic)
+        _ip("link", "set", "dev", nic, "up")
         if not was_up:
-            _ip("link", "set", "dev", nic, "down")
-        LOG.info("Removed temporary address from %s", nic)
+            undo.callback(_ip, "link", "set", "dev", nic, "down")
+        _ip("address", "replace", TEMPORARY_ADDRESS, "dev", nic)
+        undo.callback(_remove_temporary_address, nic)
+        LOG.info("Added temporary address %s to %s", TEMPORARY_ADDRESS, nic)
+        yield
+
+
+def _remove_temporary_address(nic):
+    _ip("address", "del", TEMPORARY_ADDRESS, "dev", nic)
+    LOG.info("Removed temporary address from %s", nic)
 
 
 def _first_nic():
