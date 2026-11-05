@@ -37,8 +37,8 @@ Each request waits up to 10 s for an answer. Without one, the datasource
 retries after 1, 2, 4 and 8 s, then every 10 s, 30 times in all: 275 s of
 waiting, plus up to 10 s for each attempt. If the service still hasn't
 answered, or answers 404 for `metadata.json` because there's no document for
-this VM, cloud-init finds no datasource. It caches nothing then, so the next
-boot tries again.
+this VM, cloud-init finds no datasource. On a first boot the VM then comes up
+without a network. cloud-init caches nothing, so the next boot tries again.
 
 Each NIC keeps the names udev gives it: one predictable name, such as `ens3`,
 and the others, such as `enp0s3`, as alternative names. The roles `public0`
