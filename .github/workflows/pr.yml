@@ -22,6 +22,15 @@ jobs:
       - name: shellcheck
         run: shellcheck .github/scripts/*.sh tests/*.sh
 
+      - name: Install pyflakes
+        run: |
+          sudo apt-get update --quiet --quiet
+          sudo apt-get install --yes --quiet --quiet --no-install-recommends pyflakes3
+
+      # Errors only, such as undefined names and unused imports; no style rules.
+      - name: pyflakes
+        run: pyflakes3 src tests
+
   build:
     name: Build
     permissions:
@@ -36,6 +45,36 @@ jobs:
     permissions:
       contents: read
     uses: ./.github/workflows/_test.yml
+
+  # Pull requests from forks get a read-only token, so they get no comment.
+  coverage-report:
+    name: Coverage Report
+    needs: test
+    if: ${{ !cancelled() && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: write  # post the comment
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # None exist when the build failed; the comment says so.
+      - name: Download coverage reports
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: coverage-*
+          path: coverage
+
+      - name: Comment on PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: .github/scripts/coverage-comment.sh coverage
 
   # The one check the main branch requires. Checks from reusable workflows are
   # named after both jobs, and Build's name carries the version, so they can't
