@@ -3,6 +3,22 @@
 %:
 	dh $@
 
+# Enabled, but never started by apt: the password unit belongs before
+# cloud-init's network stage at boot, and an image build installs the package
+# on a machine with no metadata service.
+#
+# Ubuntu 22.04's debhelper only finds units in /lib/systemd/system, and
+# Debian 13 only accepts them in /usr/lib/systemd/system. All four systems
+# have a merged /usr, where the two are the same directory, so the units move
+# once debhelper has written their install scripts.
+override_dh_installsystemd:
+	dh_installsystemd --no-start
+	if [ -d debian/sc-guest/lib/systemd/system ]; then \
+		mkdir -p debian/sc-guest/usr/lib/systemd && \
+		mv debian/sc-guest/lib/systemd/system debian/sc-guest/usr/lib/systemd/ && \
+		rmdir debian/sc-guest/lib/systemd debian/sc-guest/lib; \
+	fi
+
 # Ubuntu's dpkg compresses with zstd by default. Debian's archive format only
 # allows gz and xz, so xz keeps the package readable everywhere.
 override_dh_builddeb:

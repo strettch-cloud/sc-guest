@@ -8,8 +8,8 @@ The package:
 
 - gives cloud-init a datasource that reads the VM's configuration from the
   metadata service at `169.254.169.254`
-- will set the root password chosen when the VM was created (not built yet)
-- will report to the platform whether the VM finished booting (not built yet)
+- sets the root password chosen when the VM was created
+- reports to the platform whether the VM finished booting
 
 ## What it installs
 
@@ -19,6 +19,8 @@ The package:
 | `/usr/lib/python3/dist-packages/sc_guest/` | helpers that don't need cloud-init, such as `sc_guest.metadata` for reading the metadata service |
 | `/etc/cloud/cloud.cfg.d/95_sc-guest.cfg` | `datasource_list: [ StrettchCloud ]` and `network: {config: disabled}` |
 | `/etc/cloud/ds-identify.cfg` | `policy: enabled` |
+| `/usr/lib/sc-guest/sc-guest` | the password and boot-report commands |
+| `/usr/lib/systemd/system/sc-guest-password.service`, `sc-guest-report.service` | the units that run them |
 
 ## How the datasource works
 
@@ -68,6 +70,91 @@ The datasource uses only the parts of cloud-init that are the same in every
 supported version, so it does its own HTTP and sets the temporary address
 with `ip`.
 
+## What it does at boot
+
+Two systemd units, both started only when cloud-init runs:
+
+| Unit | Runs | Does |
+|---|---|---|
+| `sc-guest-password.service` | every boot, after cloud-init's local stage and before its network stage | on the first boot of a VM created with a root password, sets it |
+| `sc-guest-report.service` | every boot, in the background once the network is up | tells the platform whether the VM finished booting, and confirms a password it set |
+
+**The password.** The unit asks the metadata service for the password with
+`GET /v1/password`. It does this only on a VM's first boot, and only when
+cloud-init found the VM's metadata with this package's datasource. Then it:
+
+1. sets root's password with `chpasswd`
+2. checks root's entry in `/etc/shadow` with perl's `crypt()`
+3. allows password login over SSH, root included, with
+   `/etc/ssh/sshd_config.d/55-sc-guest-password.conf`
+4. checks that `sshd -T` shows `passwordauthentication yes` and
+   `permitrootlogin yes`, with a throwaway host key, since the VM has none
+   yet
+5. reloads sshd if it's running, and records the result in
+   `/var/lib/sc-guest/password.json`
+
+The reporter then confirms it with `POST /v1/password/ack`, on that boot or a
+later one, which lets the platform delete the password. If a step fails,
+nothing is confirmed, the boot report carries the error, and the next boot
+tries again.
+
+A VM created with SSH keys only gets `404` from `/v1/password`. Nothing is
+set, the drop-in isn't written, and the VM never asks again.
+
+Two settings decide which password and SSH setting win:
+
+- **The unit runs before cloud-init's network stage**, where Ubuntu applies a
+  password from the customer's user data, so the customer's wins. Debian
+  applies it later, so the customer's wins there too.
+- **sshd keeps the first value it reads, in filename order.** cloud-init
+  writes a customer's `ssh_pwauth` to `50-cloud-init.conf`, which wins over
+  `55-sc-guest-password.conf`. That in turn wins over image defaults such as
+  Ubuntu's `60-cloudimg-settings.conf`.
+
+**The boot report.** `POST /v1/report/boot` says `done`, or `error` with the
+errors from this boot's setup, read from cloud-init's
+`/run/cloud-init/status.json`:
+
+- errors from cloud-init's local and network stages: the datasource, network,
+  hostname and SSH keys
+- the password unit's error, if it had one
+- when no datasource loaded, the reason cloud-init gave. cloud-init 25.1 and
+  26.x say why. Debian 12's 22.4.2 only says that none was found.
+
+Failures of the customer's own scripts don't count, because a broken customer
+script isn't a failed boot. Those run in cloud-init's later stages, except
+`bootcmd`, which is left out too.
+
+The reporter doesn't wait for cloud-init to finish, and it's never ordered
+after `cloud-final.service`. That unit is ordered after `multi-user.target`,
+so ordering a unit that `multi-user.target` wants after it would make a cycle,
+and systemd silently drops a unit to break one.
+
+**Retries.** Each attempt gives up after 6 s without an answer, just longer
+than the metadata service's own 5 s. The password unit waits for the
+metadata service as long as the datasource does, retrying after 1 s and
+backing off to 10 s. The reporter retries in the background, backing off to
+60 s, so it never holds up the boot.
+
+**Files it writes:**
+
+| Path | Holds |
+|---|---|
+| `/var/lib/sc-guest/password.json` | the instance ID and whether its password was set, confirmed, or not needed |
+| `/run/sc-guest/password-error` | this boot's password error, for this boot's report |
+| `/etc/ssh/sshd_config.d/55-sc-guest-password.conf` | the SSH setting, on VMs created with a password |
+
+The state is kept per instance ID, so a VM made from another VM's disk sets
+its own password. Purging the package removes `/var/lib/sc-guest`, but leaves
+the SSH setting in place, since the VM may depend on it.
+
+**Why Python.** Both commands are one Python 3 script that uses only the
+standard library. `python3` is on every supported system, because cloud-init
+depends on it, and it can make HTTP requests and read JSON. perl-base, the
+other interpreter that's always installed, can do neither without modules
+from perl's full package, and curl isn't installed with cloud-init. The
+script never imports cloud-init, so a cloud-init update can't break it.
+
 ## Supported systems
 
 | System | cloud-init it ships |
@@ -102,13 +189,18 @@ The package lands in `dist/`, with `packages.sha256` next to it.
 
 ## Testing
 
-Each test runs as root in a throwaway container of a supported system:
+Each test runs as root in a throwaway container of a supported system. The
+tests that talk to the fake metadata service put its address on the
+container's loopback, which needs `--cap-add NET_ADMIN`:
 
 ```bash
-docker run --rm -v "$PWD":/src:ro -w /src debian:12 bash -c '
+docker run --rm --cap-add NET_ADMIN -v "$PWD":/src:ro -w /src debian:12 bash -c '
   tests/setup-cloud-init.sh archive &&
   tests/datasource.sh dist/sc-guest_*_all.deb &&
-  tests/lifecycle.sh dist/sc-guest_*_all.deb'
+  tests/lifecycle.sh dist/sc-guest_*_all.deb &&
+  tests/units.sh dist/sc-guest_*_all.deb &&
+  tests/password.sh dist/sc-guest_*_all.deb &&
+  tests/report.sh dist/sc-guest_*_all.deb'
 ```
 
 - `datasource.sh` installs the package and runs `test_datasource.py` against
@@ -118,6 +210,12 @@ docker run --rm -v "$PWD":/src:ro -w /src debian:12 bash -c '
   branches.
 - `lifecycle.sh` installs, removes and purges the package. After the remove,
   it runs cloud-init's local stage with the settings that stay.
+- `units.sh` checks that the units are valid, and that
+  `systemd-analyze verify` finds no ordering cycle at boot.
+- `password.sh` runs the password unit and the ack against a fake metadata
+  service: keys-only VMs, sshd's drop-in order, retries and reboots.
+- `report.sh` checks the boot report from the system's real cloud-init:
+  done, a failing `bootcmd`, and a datasource that's missing or fails.
 
 `setup-cloud-init.sh proposed` installs the cloud-init update the system is
 about to ship instead, as the nightly run does.

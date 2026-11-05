@@ -11,7 +11,7 @@ Rules-Requires-Root: no
 
 Package: sc-guest
 Architecture: all
-Depends: cloud-init, iproute2, ${misc:Depends}, ${python3:Depends}
+Depends: cloud-init, iproute2, passwd, ${misc:Depends}, ${python3:Depends}
 Description: Strettch Cloud guest integration
  Lets cloud-init configure Strettch Cloud virtual machines from the
  platform's metadata service, sets the root password chosen at creation,
