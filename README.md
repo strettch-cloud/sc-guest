@@ -124,7 +124,7 @@ about to ship instead, as the nightly run does.
 
 | Workflow | Runs on | Does |
 |---|---|---|
-| `pr.yml` | every pull request | shellcheck, pyflakes, build, lintian, tests with coverage on all four systems, then a comment with the results |
+| `pr.yml` | every pull request | shellcheck, pyflakes, build, lintian, tests with coverage on all four systems, then a comment with each system's coverage |
 | `nightly.yml` | every night | the same tests with each system's proposed cloud-init |
 | `beta.yml` | every merge to `main` | beta pre-release |
 | `release.yml` | manual, from `main` | stable release |

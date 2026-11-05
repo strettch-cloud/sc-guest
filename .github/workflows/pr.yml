@@ -47,14 +47,13 @@ jobs:
     uses: ./.github/workflows/_test.yml
 
   # Pull requests from forks get a read-only token, so they get no comment.
-  comment:
-    name: Post results
-    needs: [lint, build, test]
+  coverage-report:
+    name: Coverage Report
+    needs: test
     if: ${{ !cancelled() && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-      actions: read         # list this run's jobs
       pull-requests: write  # post the comment
     steps:
       - name: Checkout code
@@ -70,15 +69,12 @@ jobs:
           pattern: coverage-*
           path: coverage
 
-      - name: Post the comment
+      - name: Comment on PR
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          RUN_ID: ${{ github.run_id }}
-          RUN_ATTEMPT: ${{ github.run_attempt }}
-        run: .github/scripts/pr-comment.sh coverage
+        run: .github/scripts/coverage-comment.sh coverage
 
   # The one check the main branch requires. Checks from reusable workflows are
   # named after both jobs, and Build's name carries the version, so they can't
