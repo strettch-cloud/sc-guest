@@ -43,7 +43,7 @@ jobs:
       - name: Install build tools
         run: |
           apt-get update --quiet --quiet
-          apt-get install --yes --quiet --quiet --no-install-recommends debhelper build-essential
+          apt-get install --yes --quiet --quiet --no-install-recommends debhelper dh-python build-essential
 
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

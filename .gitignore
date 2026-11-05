@@ -11,3 +11,4 @@
 /debian/*.substvars
 /debian/sc-guest/
 /debian/*.debhelper.log
+/debian/*.debhelper

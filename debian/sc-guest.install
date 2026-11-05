@@ -1,0 +1,4 @@
+src/DataSourceStrettchCloud.py usr/lib/python3/dist-packages/
+src/sc_guest usr/lib/python3/dist-packages/
+config/95_sc-guest.cfg etc/cloud/cloud.cfg.d/
+config/ds-identify.cfg etc/cloud/

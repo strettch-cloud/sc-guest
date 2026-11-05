@@ -2,7 +2,7 @@ Source: sc-guest
 Section: admin
 Priority: optional
 Maintainer: Strettch Cloud <engineering@strettch.com>
-Build-Depends: debhelper-compat (= 13)
+Build-Depends: debhelper-compat (= 13), dh-sequence-python3, python3:any
 Standards-Version: 4.7.0
 Homepage: https://github.com/strettch-cloud/sc-guest
 Vcs-Browser: https://github.com/strettch-cloud/sc-guest
@@ -11,7 +11,7 @@ Rules-Requires-Root: no
 
 Package: sc-guest
 Architecture: all
-Depends: cloud-init, ${misc:Depends}
+Depends: cloud-init, iproute2, ${misc:Depends}, ${python3:Depends}
 Description: Strettch Cloud guest integration
  Lets cloud-init configure Strettch Cloud virtual machines from the
  platform's metadata service, sets the root password chosen at creation,
