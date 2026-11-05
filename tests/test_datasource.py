@@ -2,8 +2,8 @@
 
 Runs as root in a throwaway container of each supported system, after
 setup-cloud-init.sh and with the package installed (see datasource.sh). The
-metadata service is a local HTTP server, and ip(8) and /sys/class/net are
-faked, so no network setup is needed.
+metadata service is a local HTTP server, and /sys/class/net and, outside
+TestIp, ip(8) are faked, so no network setup is needed.
 """
 
 import http.server
@@ -135,10 +135,6 @@ class FakeHost(unittest.TestCase):
         "ens4": (3, 0x1002, True),
         "ens3": (2, 0x1002, True),
     }
-    links = [
-        {"ifname": "ens3", "address": "1e:00:8c:00:49:cc"},
-        {"ifname": "ens4", "address": "02:01:01:0f:00:04"},
-    ]
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -167,8 +163,6 @@ class FakeHost(unittest.TestCase):
 
     def fake_ip(self, *args):
         self.ip_calls.append(list(args))
-        if args == ("-json", "link", "show"):
-            return json.dumps(self.links)
         return ""
 
     def datasource(self, sys_cfg=None):
@@ -292,6 +286,29 @@ class TestFirstBoot(FakeHost):
             ["address", "del", "169.254.10.10/16", "dev", "ens3"], self.ip_calls
         )
 
+    def test_gives_up_when_the_service_stays_unavailable(self):
+        routes = document_routes()
+        routes["/v1/metadata.json"] = (
+            502,
+            b'{"code": "METAGATE_UPSTREAM_UNREACHABLE"}',
+        )
+        with mock.patch.object(metadata, "RETRIES", 2):
+            with FakeService(routes) as service:
+                with self.assertLogs(ds_module.LOG, "ERROR") as logs:
+                    self.assertFalse(self.datasource().get_data())
+        self.assertEqual(service.paths(), ["/v1/metadata.json"] * 3)
+        self.assertIn("failed 3 times", logs.output[0])
+        self.assertIn(
+            ["address", "del", "169.254.10.10/16", "dev", "ens3"], self.ip_calls
+        )
+
+    def test_never_carries_on_without_the_user_data(self):
+        routes = document_routes()
+        routes["/v1/user-data"] = (503, b'{"code": "NOT_READY"}')
+        with mock.patch.object(metadata, "RETRIES", 0):
+            with FakeService(routes):
+                self.assertFalse(self.datasource().get_data())
+
     def test_shipped_list_skips_the_platform_check(self):
         # From 25.1, a list of exactly [StrettchCloud] skips ds_detect.
         ds = self.datasource()
@@ -306,6 +323,14 @@ class TestFirstBoot(FakeHost):
             "cloudinit.dmi.read_dmi_data", return_value="Strettch Cloud"
         ):
             self.assertTrue(ds.ds_detect())
+
+
+class TestNoNic(FakeHost):
+    nics = {"lo": (1, 0x9, False)}
+
+    def test_fails_without_a_physical_nic(self):
+        with self.assertRaisesRegex(RuntimeError, "no network interface"):
+            self.datasource().get_data()
 
 
 class TestNicAlreadyUp(FakeHost):
@@ -356,30 +381,53 @@ class TestRetries(FakeHost):
             ]
         )
         self.assertEqual(metadata.get("metadata.json"), b"answer")
-        self.assertEqual(attempts, [6] * 8)
+        self.assertEqual(attempts, [10] * 8)
         self.assertEqual(self.sleeps, [1, 2, 4, 8, 10, 10, 10])
+
+    def test_gives_up_after_30_retries(self):
+        attempts = self.fail_then_answer(
+            [self.http_error(502, "METAGATE_UPSTREAM_UNREACHABLE")
+             for _ in range(31)]
+        )
+        with self.assertRaisesRegex(
+            metadata.Unavailable,
+            "failed 31 times, last with HTTP 502 METAGATE_UPSTREAM_UNREACHABLE",
+        ):
+            metadata.get("metadata.json")
+        self.assertEqual(len(attempts), 31)
+        self.assertEqual(self.sleeps, [1, 2, 4, 8] + [10] * 26)
 
     def test_does_not_retry_not_found(self):
         self.fail_then_answer([self.http_error(404, "USER_DATA_NOT_SET")])
         self.assertIsNone(metadata.get("user-data"))
         self.assertEqual(self.sleeps, [])
 
-    def test_gives_up_on_an_attempt_after_6_seconds(self):
+    def test_logs_an_error_without_a_code(self):
+        error = urllib.error.HTTPError(
+            "url", 502, "Bad Gateway", {}, io.BytesIO(b"<html>")
+        )
+        self.fail_then_answer([error])
+        with self.assertLogs(metadata.LOG, "WARNING") as logs:
+            self.assertEqual(metadata.get("metadata.json"), b"answer")
+        self.assertIn("attempt 1 failed: HTTP 502; retrying", logs.output[0])
+
+    def test_retries_an_attempt_that_times_out(self):
         answered = []
 
         def hang_once():
             if not answered:
                 answered.append(True)
-                time.sleep(7)
+                time.sleep(2)
             return 200, b"answer"
 
-        with FakeService({"/v1/slow": (hang_once, None)}) as service:
-            start = time.monotonic()
-            self.assertEqual(metadata.get("slow"), b"answer")
-            elapsed = time.monotonic() - start
+        with mock.patch.object(metadata, "TIMEOUT", 1):
+            with FakeService({"/v1/slow": (hang_once, None)}) as service:
+                start = time.monotonic()
+                self.assertEqual(metadata.get("slow"), b"answer")
+                elapsed = time.monotonic() - start
         self.assertEqual(service.paths(), ["/v1/slow", "/v1/slow"])
-        self.assertGreaterEqual(elapsed, 6)
-        self.assertLess(elapsed, 7)
+        self.assertGreaterEqual(elapsed, 1)
+        self.assertLess(elapsed, 2)
         self.assertEqual(self.sleeps, [1])
 
 
@@ -429,34 +477,29 @@ class TestReboot(FakeHost):
         )
 
 
-class TestRoleNames(FakeHost):
-    links = [
-        {"ifname": "ens3", "address": "1E:00:8C:00:49:CC", "altnames": ["enp0s3"]},
-        {"ifname": "ens4", "address": "02:01:01:0f:00:04", "altnames": ["private0"]},
-        {"ifname": "lo", "address": "00:00:00:00:00:00"},
-    ]
-
-    def test_adds_each_role_as_an_alternative_name(self):
+class TestNicNames(FakeHost):
+    def test_leaves_the_names_to_the_system(self):
+        # public0 and private0 are only the network config's keys. Each NIC
+        # keeps the names udev gives it.
         ds = self.datasource()
-        ds._network_config = NETWORK_CONFIG
-        ds.activate({}, is_new_instance=False)
-        self.assertEqual(
-            self.ip_calls,
-            [
-                ["-json", "link", "show"],
-                ["link", "property", "add", "dev", "ens3", "altname", "public0"],
-            ],
-        )
+        with FakeService(document_routes()):
+            self.assertTrue(ds.get_data())
+        self.ip_calls.clear()
+        ds.activate({}, is_new_instance=True)
+        self.assertEqual(self.ip_calls, [])
 
-    def test_a_failure_does_not_stop_cloud_init(self):
-        def broken_ip(*args):
-            raise RuntimeError("ip: not found")
 
-        ds = self.datasource()
-        ds._network_config = NETWORK_CONFIG
-        with mock.patch.object(ds_module, "_ip", broken_ip):
-            with self.assertLogs(ds_module.LOG, "WARNING"):
-                ds.activate({}, is_new_instance=False)
+class TestIp(unittest.TestCase):
+    """Runs the real ip(8)."""
+
+    def test_returns_its_output(self):
+        self.assertIn("ip utility", ds_module._ip("-V"))
+
+    def test_raises_with_the_command_and_its_error(self):
+        with self.assertRaisesRegex(
+            RuntimeError, "^ip link show dev sc-no-such-nic: .*does not exist"
+        ):
+            ds_module._ip("link", "show", "dev", "sc-no-such-nic")
 
 
 if __name__ == "__main__":

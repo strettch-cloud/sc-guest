@@ -73,13 +73,21 @@ class DataSourceStrettchCloud(sources.DataSource):
         return dmi.read_dmi_data("system-manufacturer") == MANUFACTURER
 
     def _get_data(self):
-        with _temporary_address(_first_nic()):
-            raw = metadata.get("metadata.json")
-            if raw is None:
-                LOG.error("The metadata service has no document for this VM")
-                return False
-            user_data = metadata.get("user-data")
-            vendor_data = metadata.get("vendor-data")
+        try:
+            with _temporary_address(_first_nic()):
+                raw = metadata.get("metadata.json")
+                if raw is None:
+                    LOG.error(
+                        "The metadata service has no document for this VM"
+                    )
+                    return False
+                user_data = metadata.get("user-data")
+                vendor_data = metadata.get("vendor-data")
+        except metadata.Unavailable as error:
+            # cloud-init then finds no datasource and caches nothing, so the
+            # next boot tries again.
+            LOG.error("%s", error)
+            return False
 
         document = json.loads(raw)
         for key in ("instance-id", "hostname", "network-config"):
@@ -107,14 +115,6 @@ class DataSourceStrettchCloud(sources.DataSource):
         return sources.instance_id_matches_system_uuid(
             self.get_instance_id(), "system-serial-number"
         )
-
-    def activate(self, cfg, is_new_instance):
-        # Runs on every boot, because names added with ip(8) don't survive a
-        # reboot. A failure here must not stop cloud-init's stage.
-        try:
-            _add_role_names(self._network_config)
-        except Exception:  # pylint: disable=broad-except
-            LOG.warning("Could not add the NICs' role names", exc_info=True)
 
 
 @contextlib.contextmanager
@@ -149,31 +149,6 @@ def _first_nic():
 def _is_up(nic):
     with open(os.path.join(SYS_CLASS_NET, nic, "flags")) as f:
         return bool(int(f.read(), 16) & 0x1)  # IFF_UP
-
-
-def _add_role_names(network_config):
-    """Gives each NIC its role (public0, private0, …) as an alternative name.
-
-    The roles are the keys of the network config's ethernets, each matched
-    to its NIC by MAC.
-    """
-    if not network_config:
-        return
-    links = json.loads(_ip("-json", "link", "show"))
-    by_mac = {link.get("address", "").lower(): link for link in links}
-    for role, ethernet in network_config.get("ethernets", {}).items():
-        mac = ethernet.get("match", {}).get("macaddress", "").lower()
-        link = by_mac.get(mac)
-        if link is None:
-            LOG.warning("No NIC has MAC %s for %s", mac, role)
-            continue
-        nic = link["ifname"]
-        if role == nic or role in link.get("altnames", []):
-            continue
-        try:
-            _ip("link", "property", "add", "dev", nic, "altname", role)
-        except RuntimeError as error:
-            LOG.warning("Could not name %s %s: %s", nic, role, error)
 
 
 def _ip(*args):

@@ -21,9 +21,11 @@ HEADERS = {"Metadata-Flavor": "StrettchCloud"}
 
 # Seconds per attempt. The service gives up on what is behind it after 5 s,
 # so its error arrives before this timeout does.
-TIMEOUT = 6
+TIMEOUT = 10
 
-# Seconds between attempts: 1, 2, 4, 8, then 10 until the service answers.
+# Retries after the first attempt, waiting 1, 2, 4, 8, then 10 s between
+# them: 275 s of waiting in all, plus up to TIMEOUT for each attempt.
+RETRIES = 30
 FIRST_DELAY = 1
 MAX_DELAY = 10
 
@@ -32,11 +34,15 @@ _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 _sleep = time.sleep
 
 
+class Unavailable(Exception):
+    """The service gave neither an answer nor a 404 within RETRIES retries."""
+
+
 def get(path):
     """Returns the body of GET /v1/<path>, or None if the service answers 404.
 
-    Any other answer, or none, is retried until the service gives one of
-    those two.
+    Any other answer, or none, is retried RETRIES times, then raises
+    Unavailable.
     """
     request = urllib.request.Request(BASE_URL + path, headers=HEADERS)
     delay = FIRST_DELAY
@@ -48,9 +54,14 @@ def get(path):
         except urllib.error.HTTPError as error:
             if error.code == 404:
                 return None
-            reason = f"HTTP {error.code} {_error_code(error)}"
+            reason = f"HTTP {error.code} {_error_code(error)}".strip()
         except (OSError, http.client.HTTPException) as error:
             reason = repr(error)
+        if attempt > RETRIES:
+            raise Unavailable(
+                f"GET {request.full_url} failed {attempt} times, "
+                f"last with {reason}"
+            )
         LOG.warning(
             "GET %s attempt %d failed: %s; retrying in %d s",
             request.full_url,

@@ -33,14 +33,18 @@ The datasource:
 4. hands cloud-init the document's network config, which matches each NIC by
    MAC
 
-Each request waits up to 6 s for an answer. Until the service answers, the
-datasource retries every 1, 2, 4 and 8 s, then every 10 s. A 404 for
-`metadata.json` means there's no document for this VM: cloud-init then finds
-no datasource.
+Each request waits up to 10 s for an answer. Without one, the datasource
+retries after 1, 2, 4 and 8 s, then every 10 s, 30 times in all: 275 s of
+waiting, plus up to 10 s for each attempt. If the service still hasn't
+answered, or answers 404 for `metadata.json` because there's no document for
+this VM, cloud-init finds no datasource. It caches nothing then, so the next
+boot tries again.
 
-On every boot, the datasource gives each NIC its role from the network config
-(`public0`, `private0`, …) as an alternative name, so `ip addr show public0`
-works alongside the kernel name.
+Each NIC keeps the names udev gives it: one predictable name, such as `ens3`,
+and the others, such as `enp0s3`, as alternative names. The roles `public0`
+and `private0` are the keys of the network config, each matched to its NIC by
+MAC. The metadata service puts the default route and the nameservers on
+`public0`, or on `private0` if the VM has no public NIC.
 
 On later boots, cloud-init uses its cached copy if the VM's DMI serial number
 is still the cached instance id. The datasource never reads the metadata
@@ -51,8 +55,7 @@ The settings are chosen so that a failure leaves the VM as it was:
 - **The datasource finds nothing.** `network: {config: disabled}` makes
   cloud-init leave the network alone, instead of writing DHCP for the first
   NIC only. The datasource ranks its own network config above this setting,
-  so the first boot still gets the real network. The NICs have no role names
-  on such a boot.
+  so the first boot still gets the real network.
 - **The package is removed but its settings stay** (as `apt remove` does).
   The datasource is a top-level module, so cloud-init reports that it found
   no datasource. A module inside a package named in `datasource_pkg_list`
