@@ -22,6 +22,15 @@ jobs:
       - name: shellcheck
         run: shellcheck .github/scripts/*.sh tests/*.sh
 
+      - name: Install pyflakes
+        run: |
+          sudo apt-get update --quiet --quiet
+          sudo apt-get install --yes --quiet --quiet --no-install-recommends pyflakes3
+
+      # Errors only, such as undefined names and unused imports; no style rules.
+      - name: pyflakes
+        run: pyflakes3 src tests
+
   build:
     name: Build
     permissions:
