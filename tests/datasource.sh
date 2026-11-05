@@ -4,12 +4,15 @@
 # percent of the installed code's statements and branches. Runs as root in a
 # throwaway container of each supported system, after setup-cloud-init.sh.
 # Usage: datasource.sh <path to .deb>
+# With COVERAGE_REPORT set, also writes the system's name and the coverage
+# report to that file.
 set -euo pipefail
 
 DEB="$(realpath "${1:?usage: datasource.sh <deb>}")"
 TEST="$(realpath "$(dirname "$0")/test_datasource.py")"
+REPORT="$(realpath -m "${COVERAGE_REPORT:-/dev/null}")"
 SITE=/usr/lib/python3/dist-packages
-MIN_COVERAGE=89
+MIN_COVERAGE=98
 export DEBIAN_FRONTEND=noninteractive
 
 apt-get install --yes --quiet --quiet "$DEB" python3-coverage
@@ -24,4 +27,9 @@ export COVERAGE_FILE="$WORK/.coverage"
 python3 -I -m coverage run --branch \
   --include="$SITE/DataSourceStrettchCloud.py,$SITE/sc_guest/*" \
   test_datasource.py -v
-python3 -I -m coverage report --show-missing --precision=1 --fail-under="$MIN_COVERAGE"
+{
+  echo "$(sed -n 's/^PRETTY_NAME="\(.*\)"$/\1/p' /etc/os-release)," \
+    "cloud-init $(dpkg-query -W -f '${Version}' cloud-init)"
+  python3 -I -m coverage report --show-missing --precision=1 \
+    --fail-under="$MIN_COVERAGE"
+} | tee "$REPORT"

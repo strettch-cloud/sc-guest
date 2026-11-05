@@ -114,7 +114,7 @@ docker run --rm -v "$PWD":/src:ro -w /src debian:12 bash -c '
 - `datasource.sh` installs the package and runs `test_datasource.py` against
   the system's own cloud-init. The metadata service is a local HTTP server,
   and `ip` and `/sys/class/net` are faked. The tests run under coverage, and
-  fail if they run less than 89% of the installed code's statements and
+  fail if they run less than 98% of the installed code's statements and
   branches.
 - `lifecycle.sh` installs, removes and purges the package. After the remove,
   it runs cloud-init's local stage with the settings that stay.
@@ -124,7 +124,7 @@ about to ship instead, as the nightly run does.
 
 | Workflow | Runs on | Does |
 |---|---|---|
-| `pr.yml` | every pull request | shellcheck, pyflakes, build, lintian, tests with coverage on all four systems |
+| `pr.yml` | every pull request | shellcheck, pyflakes, build, lintian, tests with coverage on all four systems, then a comment with the results |
 | `nightly.yml` | every night | the same tests with each system's proposed cloud-init |
 | `beta.yml` | every merge to `main` | beta pre-release |
 | `release.yml` | manual, from `main` | stable release |
