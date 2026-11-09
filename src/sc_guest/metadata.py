@@ -11,13 +11,20 @@ import time
 import urllib.error
 import urllib.request
 
+from sc_guest import __version__
+
 LOG = logging.getLogger(__name__)
 
 BASE_URL = "http://169.254.169.254/v1/"
 
-# The service refuses requests without this header. An application inside the
-# VM that is tricked into fetching a URL sends only the URL, not the header.
-HEADERS = {"Metadata-Flavor": "StrettchCloud"}
+# Sent with every request, the units' included. The service refuses requests
+# without Metadata-Flavor: an application inside the VM that is tricked into
+# fetching a URL sends only the URL, not the header. User-Agent names the
+# version in the service's logs.
+HEADERS = {
+    "Metadata-Flavor": "StrettchCloud",
+    "User-Agent": f"sc-guest/{__version__}",
+}
 
 # Seconds per attempt. The service gives up on what is behind it after 5 s,
 # so its error arrives before this timeout does.

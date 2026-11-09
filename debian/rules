@@ -1,7 +1,21 @@
 #!/usr/bin/make -f
 
+include /usr/share/dpkg/pkg-info.mk
+
+# The release tag, such as 1.2.0-beta.3. build-deb.sh turned the tag's "-"
+# into "~" for apt, and the tag has no other "~".
+TAG := $(subst ~,-,$(DEB_VERSION))
+VERSION_FILE := debian/sc-guest/usr/lib/python3/dist-packages/sc_guest/__init__.py
+
 %:
 	dh $@
+
+# Writes the tag into the installed copy, which the units and the datasource
+# send with every request. grep fails the build if sed matched nothing.
+override_dh_install:
+	dh_install
+	sed -i 's/^__version__ = "0\.0\.0"$$/__version__ = "$(TAG)"/' $(VERSION_FILE)
+	grep -qx '__version__ = "$(TAG)"' $(VERSION_FILE)
 
 # Enabled, but never started by apt: the password unit belongs before
 # cloud-init's network stage at boot, and an image build installs the package

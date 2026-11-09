@@ -1,6 +1,7 @@
 # shellcheck shell=bash
 # Helpers for the tests that run sc-guest against the fake metadata service.
-# Sourced by password.sh and report.sh, which use SC_GUEST and WAIT_RC.
+# Sourced by password.sh and report.sh, which use SC_GUEST, VERSION and
+# WAIT_RC.
 # shellcheck disable=SC2034
 
 TESTS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -15,10 +16,14 @@ fail() {
 }
 
 # Installs the package and the given tools, and puts the metadata service's
-# address on the loopback, which needs the NET_ADMIN capability.
+# address on the loopback, which needs the NET_ADMIN capability. Sets VERSION
+# to the release tag the package was built from, which build-deb.sh puts in
+# the file name.
 prepare() {
     local deb="$1"
     shift
+    VERSION="$(basename "$deb" | sed -n 's/^sc-guest_\(.*\)_all\.deb$/\1/p')"
+    [[ -n "$VERSION" ]] || fail "no version in the file name $deb, want sc-guest_<tag>_all.deb"
     apt-get install --yes --quiet --quiet --no-install-recommends iproute2 "$@" "$deb" >/dev/null
     if ! ip -4 addr show dev lo | grep -q '169\.254\.169\.254/32'; then
         ip addr add 169.254.169.254/32 dev lo ||
@@ -48,7 +53,8 @@ fake_stop() {
 }
 
 # Prints the requests made since the last call, as sorted "METHOD PATH"
-# lines, and fails if one lacked the Metadata-Flavor header.
+# lines, and fails if one lacked the Metadata-Flavor header or didn't send
+# User-Agent: sc-guest/$VERSION.
 fake_requests() {
     touch "$FAKE_DIR/requests.jsonl"
     python3 -I -c '
@@ -57,8 +63,10 @@ lines = [json.loads(l) for l in open(sys.argv[1])]
 for r in lines:
     if not r["flavor"]:
         sys.exit("request without the Metadata-Flavor header: %s %s" % (r["method"], r["path"]))
+    if r["user_agent"] != "sc-guest/" + sys.argv[2]:
+        sys.exit("request with User-Agent %r: %s %s" % (r["user_agent"], r["method"], r["path"]))
 print("\n".join(sorted("%s %s" % (r["method"], r["path"]) for r in lines)))
-' "$FAKE_DIR/requests.jsonl" || fail "a request lacked the Metadata-Flavor header"
+' "$FAKE_DIR/requests.jsonl" "$VERSION" || fail "a request had the wrong headers"
     cat "$FAKE_DIR/requests.jsonl" >> "$FAKE_DIR/seen.jsonl"
     : > "$FAKE_DIR/requests.jsonl"
 }
