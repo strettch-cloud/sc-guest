@@ -130,11 +130,12 @@ after `cloud-final.service`. That unit is ordered after `multi-user.target`,
 so ordering a unit that `multi-user.target` wants after it would make a cycle,
 and systemd silently drops a unit to break one.
 
-**Retries.** Each attempt gives up after 6 s without an answer, just longer
-than the metadata service's own 5 s. The password unit waits for the
-metadata service as long as the datasource does, retrying after 1 s and
-backing off to 10 s. The reporter retries in the background, backing off to
-60 s, so it never holds up the boot.
+**Retries.** The password unit retries exactly as the datasource does, 30
+times, because the rest of the boot waits for it. If the metadata service
+still hasn't answered, the unit sets nothing, the boot report carries the
+error, and the next boot tries again. The reporter waits up to 6 s for each
+answer, just longer than the metadata service's own 5 s. It retries in the
+background with no limit, backing off to 60 s, so it never holds up the boot.
 
 **Files it writes:**
 

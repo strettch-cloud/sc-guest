@@ -210,11 +210,45 @@ wait_for "$pid" 60
 expect_requests $'GET /v1/password\nPOST /v1/password/ack\nPOST /v1/report/boot'
 expect_state '{"instance-id": "iid-6", "state": "acked"}'
 
+echo "== metadata service never answers: the password unit gives up as the datasource does, the next boot tries again"
+first_boot iid-7
+fake_stop
+fake_config '{"password": "seventh VM"}'
+# The datasource's 30 retries take minutes, so this run shortens them. If the
+# unit didn't use the datasource's retries, it would never give up here.
+python3 -I -c '
+import runpy, sys
+from sc_guest import metadata
+metadata.RETRIES = 2
+metadata._sleep = lambda seconds: None
+sys.argv = [sys.argv[1], "password"]
+runpy.run_path(sys.argv[0], run_name="__main__")
+' "$SC_GUEST" &
+pid=$!
+wait_for "$pid" 30
+[[ $WAIT_RC -eq 1 ]] || fail "sc-guest password exited $WAIT_RC, want 1"
+grep -q '^password: GET http://169.254.169.254/v1/password failed 3 times' /run/sc-guest/password-error ||
+    fail "error: $(cat /run/sc-guest/password-error)"
+if root_password_is "seventh VM"; then fail "root's password was set"; fi
+expect_state '{"instance-id": "iid-6", "state": "acked"}'
+fake_start
+reporter
+expect_requests "POST /v1/report/boot"
+[[ "$(report_field status)" == '"error"' ]] || fail "report status $(report_field status)"
+report_field errors | grep -q '^\["password: GET http://169.254.169.254/v1/password failed 3 times' ||
+    fail "report errors $(report_field errors)"
+reboot_vm
+password_unit 0
+reporter
+expect_requests $'GET /v1/password\nPOST /v1/password/ack\nPOST /v1/report/boot'
+root_password_is "seventh VM" || fail "the next boot didn't set the password"
+expect_state '{"instance-id": "iid-7", "state": "acked"}'
+
 echo "== cloud-init found no datasource, or another one: the password unit does nothing"
 for datasource in null '"DataSourceNoCloud [seed=/var/lib/cloud/seed/nocloud]"'; do
-    cloud_init_ran iid-7 "$datasource"
+    cloud_init_ran iid-8 "$datasource"
     reboot_vm
-    fake_config '{"password": "seventh VM"}'
+    fake_config '{"password": "eighth VM"}'
     password_unit 0
     expect_requests ""
 done
