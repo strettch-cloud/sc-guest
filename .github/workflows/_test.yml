@@ -72,3 +72,6 @@ jobs:
 
       - name: Boot report
         run: tests/report.sh dist/sc-guest_*_all.deb
+
+      - name: Root login with a key
+        run: tests/root-login.sh dist/sc-guest_*_all.deb

@@ -43,6 +43,14 @@ NETWORK_CONFIG = {
         },
     },
 }
+# What cloud-init gets: each entry keyed by the fake NIC with its MAC.
+KEYED_NETWORK_CONFIG = {
+    "version": 2,
+    "ethernets": {
+        "ens3": NETWORK_CONFIG["ethernets"]["public0"],
+        "ens4": NETWORK_CONFIG["ethernets"]["private0"],
+    },
+}
 DOCUMENT = {
     "instance-id": INSTANCE_ID,
     "hostname": "web-01",
@@ -130,17 +138,17 @@ class FakeHost(unittest.TestCase):
     """Fakes /sys/class/net and ip(8) for each test."""
 
     nics = {
-        # name: (ifindex, flags, physical)
-        "docker0": (1, 0x1003, False),
-        "ens4": (3, 0x1002, True),
-        "ens3": (2, 0x1002, True),
+        # name: (ifindex, flags, physical, MAC)
+        "docker0": (1, 0x1003, False, "02:42:ac:11:00:02"),
+        "ens4": (3, 0x1002, True, "02:01:01:0f:00:04"),
+        "ens3": (2, 0x1002, True, "1e:00:8c:00:49:cc"),
     }
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         net = os.path.join(self.tmp.name, "net")
-        for name, (ifindex, flags, physical) in self.nics.items():
+        for name, (ifindex, flags, physical, mac) in self.nics.items():
             os.makedirs(os.path.join(net, name))
             if physical:
                 os.makedirs(os.path.join(net, name, "device"))
@@ -148,6 +156,8 @@ class FakeHost(unittest.TestCase):
                 f.write(f"{ifindex}\n")
             with open(os.path.join(net, name, "flags"), "w") as f:
                 f.write(f"{flags:#x}\n")
+            with open(os.path.join(net, name, "address"), "w") as f:
+                f.write(f"{mac}\n")
         self.ip_calls = []
         for target, value in (
             ("SYS_CLASS_NET", net),
@@ -253,7 +263,7 @@ class TestFirstBoot(FakeHost):
         self.assertEqual(
             ds.get_public_ssh_keys(), DOCUMENT["public-keys"]
         )
-        self.assertEqual(ds.network_config, NETWORK_CONFIG)
+        self.assertEqual(ds.network_config, KEYED_NETWORK_CONFIG)
         self.assertEqual(ds.userdata_raw, USER_DATA)
         self.assertIsNone(ds.vendordata_raw)
 
@@ -266,6 +276,15 @@ class TestFirstBoot(FakeHost):
                 headers.get("metadata-flavor"), "StrettchCloud", path
             )
             self.assertFalse(IDENTITY_HEADERS & headers.keys(), path)
+
+    def test_sends_the_package_version_as_the_user_agent(self):
+        # The release tag the package was built from, set by datasource.sh.
+        want = "sc-guest/" + os.environ["SC_GUEST_VERSION"]
+        with FakeService(document_routes()) as service:
+            self.datasource().get_data()
+        self.assertTrue(service.requests)
+        for path, headers in service.requests:
+            self.assertEqual(headers.get("user-agent"), want, path)
 
     def test_never_requests_the_password(self):
         with FakeService(document_routes()) as service:
@@ -331,7 +350,7 @@ class TestFirstBoot(FakeHost):
 
 
 class TestNoNic(FakeHost):
-    nics = {"lo": (1, 0x9, False)}
+    nics = {"lo": (1, 0x9, False, "00:00:00:00:00:00")}
 
     def test_fails_without_a_physical_nic(self):
         with self.assertRaisesRegex(RuntimeError, "no network interface"):
@@ -339,7 +358,7 @@ class TestNoNic(FakeHost):
 
 
 class TestNicAlreadyUp(FakeHost):
-    nics = {"ens3": (2, 0x1003, True)}
+    nics = {"ens3": (2, 0x1003, True, "1e:00:8c:00:49:cc")}
 
     def test_leaves_it_up(self):
         with FakeService(document_routes()):
@@ -499,7 +518,7 @@ class TestReboot(FakeHost):
                 self.assertFalse(cached.check_instance_id({}))
         self.assertEqual(service.requests, [])
         self.assertEqual(self.ip_calls, [])
-        self.assertEqual(cached.network_config, NETWORK_CONFIG)
+        self.assertEqual(cached.network_config, KEYED_NETWORK_CONFIG)
 
     def test_never_reads_the_service_again(self):
         cached = self.first_boot()
@@ -523,10 +542,95 @@ class TestReboot(FakeHost):
         )
 
 
+PUBLIC = NETWORK_CONFIG["ethernets"]["public0"]
+PRIVATE = NETWORK_CONFIG["ethernets"]["private0"]
+
+
 class TestNicNames(FakeHost):
+    def network_config(self, network_config):
+        ds = self.datasource()
+        document = {**DOCUMENT, "network-config": network_config}
+        with FakeService(document_routes(document)):
+            self.assertTrue(ds.get_data())
+        return ds.network_config
+
+    def test_keys_each_entry_by_the_nic_with_its_mac(self):
+        # Each entry keeps its match and gets no set-name, so the key is only
+        # netplan's name for it, which customers see in file names.
+        self.assertEqual(
+            self.network_config(NETWORK_CONFIG), KEYED_NETWORK_CONFIG
+        )
+
+    def test_matches_the_mac_in_any_case(self):
+        public = {**PUBLIC, "match": {"macaddress": "1E:00:8C:00:49:CC"}}
+        config = {"version": 2, "ethernets": {"public0": public}}
+        self.assertEqual(
+            self.network_config(config),
+            {"version": 2, "ethernets": {"ens3": public}},
+        )
+
+    def test_leaves_a_key_that_is_already_the_nic_name(self):
+        config = {"version": 2, "ethernets": {"ens3": PUBLIC}}
+        self.assertEqual(self.network_config(config), config)
+
+    def test_keeps_the_key_when_no_physical_nic_has_the_mac(self):
+        # docker0 has this MAC, but isn't a physical NIC.
+        docker = {"match": {"macaddress": "02:42:ac:11:00:02"}}
+        config = {
+            "version": 2,
+            "ethernets": {"public0": docker, "private0": {"dhcp4": True}},
+        }
+        with self.assertLogs(ds_module.LOG, "WARNING") as logs:
+            self.assertEqual(self.network_config(config), config)
+        self.assertEqual(
+            [record.getMessage() for record in logs.records],
+            [
+                "No physical NIC has MAC 02:42:ac:11:00:02; keeping the "
+                "network config key public0",
+                "No physical NIC has MAC None; keeping the network config "
+                "key private0",
+            ],
+        )
+
+    def test_keeps_the_key_when_the_name_is_taken(self):
+        absent = {"match": {"macaddress": "02:00:00:00:00:99"}}
+        config = {
+            "version": 2,
+            "ethernets": {
+                "ens4": absent,
+                "private0": PRIVATE,
+                "public0": PUBLIC,
+                "public1": PUBLIC,
+            },
+        }
+        with self.assertLogs(ds_module.LOG, "WARNING") as logs:
+            got = self.network_config(config)
+        self.assertEqual(
+            got,
+            {
+                "version": 2,
+                "ethernets": {
+                    "ens4": absent,
+                    "private0": PRIVATE,
+                    "ens3": PUBLIC,
+                    "public1": PUBLIC,
+                },
+            },
+        )
+        self.assertEqual(
+            [record.getMessage() for record in logs.records[1:]],
+            [
+                "ens4 is already a network config key; keeping private0",
+                "ens3 is already a network config key; keeping public1",
+            ],
+        )
+
+    def test_leaves_a_config_without_ethernets(self):
+        config = {"version": 2}
+        self.assertEqual(self.network_config(config), config)
+
     def test_leaves_the_names_to_the_system(self):
-        # public0 and private0 are only the network config's keys. Each NIC
-        # keeps the names udev gives it.
+        # Each NIC keeps the names udev gives it.
         ds = self.datasource()
         with FakeService(document_routes()):
             self.assertTrue(ds.get_data())

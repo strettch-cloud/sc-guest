@@ -16,6 +16,14 @@ REPORT="$(realpath -m "${COVERAGE_REPORT:-/dev/null}")"
 SITE=/usr/lib/python3/dist-packages
 MIN_COVERAGE=98
 export DEBIAN_FRONTEND=noninteractive
+# The release tag the package was built from, which build-deb.sh puts in the
+# file name. test_datasource.py checks the requests carry it.
+SC_GUEST_VERSION="$(basename "$DEB" | sed -n 's/^sc-guest_\(.*\)_all\.deb$/\1/p')"
+if [[ -z "$SC_GUEST_VERSION" ]]; then
+  echo "no version in the file name $DEB, want sc-guest_<tag>_all.deb" >&2
+  exit 1
+fi
+export SC_GUEST_VERSION
 
 {
   echo "$(sed -n 's/^PRETTY_NAME="\(.*\)"$/\1/p' /etc/os-release)," \

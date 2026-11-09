@@ -12,7 +12,7 @@ Usage: fake-metadata.py <dir>
 An ack answered with 204 consumes the password, as the real service does.
 
 <dir>/requests.jsonl gets one line per request: method, path, whether the
-Metadata-Flavor header was right, and the body.
+Metadata-Flavor header was right, the User-Agent header, and the body.
 """
 
 import http.server
@@ -49,7 +49,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
         flavor = self.headers.get("Metadata-Flavor") == "StrettchCloud"
         with lock:
             with open(LOG, "a") as f:
-                f.write(json.dumps({"method": self.command, "path": self.path, "flavor": flavor, "body": body}) + "\n")
+                f.write(json.dumps({
+                    "method": self.command,
+                    "path": self.path,
+                    "flavor": flavor,
+                    "user_agent": self.headers.get("User-Agent"),
+                    "body": body,
+                }) + "\n")
             if not flavor:
                 return self.answer(403, {"code": "METADATA_FLAVOR_REQUIRED", "message": "missing header"})
             config = load_config()
