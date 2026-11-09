@@ -102,6 +102,7 @@ expect_requests $'POST /v1/password/ack\nPOST /v1/report/boot'
 [[ -z "$(last_body /v1/password/ack)" ]] || fail "the ack had a body"
 [[ "$(report_field status)" == '"done"' ]] || fail "report status $(report_field status)"
 [[ "$(report_field boot-id)" == "\"$BOOT_ID\"" ]] || fail "report boot-id $(report_field boot-id)"
+[[ "$(report_field version)" == "\"$VERSION\"" ]] || fail "report version $(report_field version), want \"$VERSION\""
 [[ "$(report_field errors)" == '[]' ]] || fail "report errors $(report_field errors)"
 expect_state '{"instance-id": "iid-1", "state": "acked"}'
 

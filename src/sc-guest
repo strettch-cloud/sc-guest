@@ -23,11 +23,9 @@ import tempfile
 import threading
 import time
 
-from sc_guest import metadata
+from sc_guest import __version__, metadata
 
 METADATA_HOST = "169.254.169.254"
-# Metadata API v1 refuses requests without this header.
-METADATA_HEADERS = {"Metadata-Flavor": "StrettchCloud", "User-Agent": "sc-guest"}
 # The metadata service gives up on its own lookups after 5 s, so waiting 6 s
 # gets its answer instead of a timeout.
 ATTEMPT_TIMEOUT = 6
@@ -73,7 +71,7 @@ class Refused(Exception):
 
 def send(method, path, document=None):
     """Sends one request and returns (status, body)."""
-    headers = dict(METADATA_HEADERS)
+    headers = dict(metadata.HEADERS)
     body = None
     if document is not None:
         body = json.dumps(document).encode()
@@ -349,7 +347,12 @@ def boot_errors():
 
 def send_report():
     errors = boot_errors()
-    report = {"status": "error" if errors else "done", "boot-id": read_text(BOOT_ID), "errors": errors}
+    report = {
+        "status": "error" if errors else "done",
+        "boot-id": read_text(BOOT_ID),
+        "errors": errors,
+        "version": __version__,
+    }
     until_answered("POST", "/v1/report/boot", accept=set(), max_delay=60, document=report)
     log(f"sent the boot report: {report['status']}")
 

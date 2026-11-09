@@ -60,6 +60,7 @@ boot
 grep -q "('bootcmd'," /run/cloud-init/status.json || fail "cloud-init didn't record the bootcmd failure"
 [[ "$(report_field status)" == '"done"' ]] || fail "report status $(report_field status)"
 [[ "$(report_field errors)" == '[]' ]] || fail "report errors $(report_field errors)"
+[[ "$(report_field version)" == "\"$VERSION\"" ]] || fail "report version $(report_field version), want \"$VERSION\""
 
 echo "== reboot: cloud-init restores its cached datasource, and a new report is sent"
 boot

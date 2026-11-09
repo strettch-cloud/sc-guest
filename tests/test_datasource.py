@@ -277,6 +277,15 @@ class TestFirstBoot(FakeHost):
             )
             self.assertFalse(IDENTITY_HEADERS & headers.keys(), path)
 
+    def test_sends_the_package_version_as_the_user_agent(self):
+        # The release tag the package was built from, set by datasource.sh.
+        want = "sc-guest/" + os.environ["SC_GUEST_VERSION"]
+        with FakeService(document_routes()) as service:
+            self.datasource().get_data()
+        self.assertTrue(service.requests)
+        for path, headers in service.requests:
+            self.assertEqual(headers.get("user-agent"), want, path)
+
     def test_never_requests_the_password(self):
         with FakeService(document_routes()) as service:
             self.datasource().get_data()

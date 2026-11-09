@@ -11,7 +11,8 @@ It:
 - lets root log in over SSH with the VM's SSH keys
 - on the first boot of a VM created with a root password, sets that password
   and allows password login over SSH
-- tells the platform on every boot whether the VM finished booting
+- tells the platform on every boot whether the VM finished booting, and
+  which version of sc-guest it runs
 
 It's only for Strettch Cloud VMs. On any other cloud, cloud-init finds no
 datasource and sets up nothing, not even the network.
