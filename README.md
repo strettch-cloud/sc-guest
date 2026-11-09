@@ -40,7 +40,7 @@ The datasource:
    never reads the password.
 3. removes the temporary address
 4. hands cloud-init the document's network config, which matches each NIC by
-   MAC
+   MAC, with each NIC's entry keyed by that NIC's name
 
 Each request waits up to 10 s for an answer. Without one, the datasource
 retries after 1, 2, 4 and 8 s, then every 10 s, 30 times in all: 275 s of
@@ -50,10 +50,14 @@ this VM, cloud-init finds no datasource. On a first boot the VM then comes up
 without a network. cloud-init caches nothing, so the next boot tries again.
 
 Each NIC keeps the names udev gives it: one predictable name, such as `ens3`,
-and the others, such as `enp0s3`, as alternative names. The roles `public0`
-and `private0` are the keys of the network config, each matched to its NIC by
-MAC. The metadata service puts the default route and the nameservers on
-`public0`, or on `private0` if the VM has no public NIC.
+and the others, such as `enp0s3`, as alternative names. The metadata service
+keys each NIC's entry in the network config by the NIC's role, `public0` or
+`private0`, and puts the default route and the nameservers on `public0`, or
+on `private0` if the VM has no public NIC. The datasource replaces each role
+with the name of the NIC that has the entry's MAC, because netplan uses the
+key in the names of the files it writes. An entry keeps its role, and the
+datasource logs a warning, if no NIC has its MAC or another entry already has
+that name.
 
 On later boots, cloud-init uses its cached copy if the VM's DMI serial number
 is still the cached instance id. The datasource never reads the metadata
