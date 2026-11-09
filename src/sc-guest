@@ -7,9 +7,10 @@ platform whether the VM finished booting.
   sc-guest report     run once per boot by sc-guest-report.service, in the
                       background once the network is up
 
-Only the Python standard library is used, never cloud-init's code, so a
-cloud-init update can't break either command. cloud-init's files are read as
-data: its status file and the current instance ID.
+Only the Python standard library and this package's sc_guest module are
+used, never cloud-init's code, so a cloud-init update can't break either
+command. cloud-init's files are read as data: its status file and the current
+instance ID.
 """
 
 import http.client
@@ -21,6 +22,8 @@ import sys
 import tempfile
 import threading
 import time
+
+from sc_guest import metadata
 
 METADATA_HOST = "169.254.169.254"
 # Metadata API v1 refuses requests without this header.
@@ -233,11 +236,12 @@ def reload_sshd():
 
 def fetch_password():
     """Returns the pending password, or None when the VM was created
-    without one. Retries until the metadata service answers, as the
-    datasource does."""
-    status, body = until_answered("GET", "/v1/password", accept={404}, max_delay=10)
-    if status == 404:
-        log(f"no password is pending ({error_code(body) or '404'})")
+    without one. Retries exactly as the datasource does, then raises
+    metadata.Unavailable: this unit runs before the rest of the boot, so it
+    must not wait forever."""
+    body = metadata.get("password")
+    if body is None:
+        log("no password is pending")
         return None
     try:
         password = json.loads(body)["password"]
