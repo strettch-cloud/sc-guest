@@ -1,17 +1,114 @@
 # sc-guest
 
-Guest integration for Ubuntu and Debian virtual machines on Strettch Cloud.
-It's packaged as `sc-guest`, one architecture-independent `.deb` for every
-supported system.
+Boot-time integration for Ubuntu and Debian virtual machines on Strettch
+Cloud. It comes installed on Strettch Cloud images, runs on its own at boot,
+and has nothing to configure.
 
-The package:
+**Only for Strettch Cloud VMs.** It limits cloud-init to its own datasource,
+so on any other cloud, cloud-init finds no datasource and sets up nothing, not
+even the network.
+
+## What it does
 
 - gives cloud-init a datasource that reads the VM's configuration from the
   metadata service at `169.254.169.254`
-- sets the root password chosen when the VM was created
-- reports to the platform whether the VM finished booting
+- lets root log in over SSH with the VM's SSH keys
+- on the first boot of a VM created with a root password, sets that password
+  and allows password login over SSH, root included
+- tells the platform on every boot whether the VM finished booting
 
-## What it installs
+Two systemd units do the last two. Both run only when cloud-init does.
+
+| Unit | Runs |
+|---|---|
+| `sc-guest-password.service` | every boot, after cloud-init's local stage and before its network stage |
+| `sc-guest-report.service` | every boot, in the background once the network is up |
+
+## Supported systems
+
+Ubuntu 22.04 and 24.04, Debian 12 and 13. One architecture-independent `.deb`
+works on all four.
+
+## Install
+
+Strettch Cloud images come with `sc-guest`, and `apt` upgrades it from the
+Strettch Cloud APT repository like any other package.
+
+To add it to an image you build yourself, download the `.deb` from
+[Releases](https://github.com/strettch-cloud/sc-guest/releases), check that
+this repository's release workflow built it, and install it in the image:
+
+```bash
+gh attestation verify sc-guest_1.2.0_all.deb -R strettch-cloud/sc-guest
+sudo apt install ./sc-guest_1.2.0_all.deb
+```
+
+## Check it on a VM
+
+```bash
+cloud-init status --long
+sudo cat /var/lib/sc-guest/password.json
+```
+
+- `cloud-init status --long` names `DataSourceStrettchCloud` under `detail`.
+- `password.json` says `none` for a VM created with SSH keys only, `set` once
+  the password is set, and `acked` once the platform has been told.
+
+## Logs
+
+```bash
+journalctl -b -u sc-guest-password -u sc-guest-report
+```
+
+The password unit also prints to the VM's console, so its messages show there
+even when SSH doesn't work. The datasource logs to cloud-init's log,
+`/var/log/cloud-init.log`.
+
+## Troubleshooting
+
+**No network after the first boot.** The datasource couldn't reach the
+metadata service, or the service has no document for this VM, so cloud-init
+found no datasource and left the network alone. `cloud-init status --long`
+and `/var/log/cloud-init.log` say which. cloud-init caches nothing in this
+case, so a reboot tries again.
+
+**The root password doesn't work.**
+
+- A VM created with SSH keys only gets no password. `password.json` says
+  `none`.
+- A password in your user data replaces the one chosen at creation.
+- Otherwise, the password unit's log says what failed. The platform isn't told
+  until the password is set, so the next boot tries again.
+
+**SSH refuses password login.** `ssh_pwauth` in your user data wins over this
+package's setting. To see what sshd uses:
+
+```bash
+sudo sshd -T | grep -E '^(passwordauthentication|permitrootlogin) '
+```
+
+**The boot report says `error`.** The boot report carries errors
+from cloud-init's local and network stages and from the password unit.
+`cloud-init status --long` lists cloud-init's. Failures of your own scripts
+don't count.
+
+## Configuration
+
+There's nothing to configure. A root password or `ssh_pwauth` in your user
+data wins over this package's. For SSH, that's because sshd keeps the first
+value it reads, and cloud-init's `50-cloud-init.conf` sorts before
+`55-sc-guest-password.conf`.
+
+The package sets cloud-init's `disable_root: false`, so root can log in over
+SSH with the VM's keys. cloud-init's default, and the value in Ubuntu's and
+Debian's `/etc/cloud/cloud.cfg`, is `true`: root's keys then only print a
+message saying to log in as the default user, such as `ubuntu`. Your user
+data can still set it back to `true`, because cloud-init ranks user data
+above `/etc/cloud/cloud.cfg.d`.
+
+## Files
+
+Installed:
 
 | Path | What it is |
 |---|---|
@@ -22,17 +119,21 @@ The package:
 | `/usr/lib/sc-guest/sc-guest` | the password and boot-report commands |
 | `/usr/lib/systemd/system/sc-guest-password.service`, `sc-guest-report.service` | the units that run them |
 
-`disable_root: false` lets root log in over SSH with the VM's keys.
-cloud-init's default, and the value in Ubuntu's and Debian's
-`/etc/cloud/cloud.cfg`, is `true`: root's keys then only print a message
-saying to log in as the default user, such as `ubuntu`. A customer's user
-data can still set it back to `true`, because cloud-init ranks user data
-above `/etc/cloud/cloud.cfg.d`.
+Written at boot:
 
-## How the datasource works
+| Path | Holds |
+|---|---|
+| `/var/lib/sc-guest/password.json` | the instance ID and whether its password was set, confirmed, or not needed |
+| `/run/sc-guest/password-error` | this boot's password error, for this boot's report |
+| `/etc/ssh/sshd_config.d/55-sc-guest-password.conf` | the SSH setting, on VMs created with a password |
 
-On a VM's first boot, the VM has no address and its network has no DHCP.
-The datasource:
+The state is kept per instance ID, so a VM made from another VM's disk sets
+its own password.
+
+## How it works
+
+**The datasource.** On a VM's first boot, the VM has no address and its
+network has no DHCP. The datasource:
 
 1. gives the first NIC the temporary address `169.254.10.10/16`
 2. reads `/v1/metadata.json`, `/v1/user-data` and `/v1/vendor-data` from
@@ -43,14 +144,11 @@ The datasource:
    MAC, with each NIC's entry keyed by that NIC's name
 
 Each request waits up to 10 s for an answer. Without one, the datasource
-retries after 1, 2, 4 and 8 s, then every 10 s, 30 times in all: 275 s of
-waiting, plus up to 10 s for each attempt. If the service still hasn't
-answered, or answers 404 for `metadata.json` because there's no document for
-this VM, cloud-init finds no datasource. On a first boot the VM then comes up
-without a network. cloud-init caches nothing, so the next boot tries again.
+retries 30 times, backing off from 1 s to 10 s: 275 s of waiting, plus up to
+10 s for each attempt. If the service still hasn't answered, or answers 404
+for `metadata.json`, cloud-init finds no datasource.
 
-Each NIC keeps the names udev gives it: one predictable name, such as `ens3`,
-and the others, such as `enp0s3`, as alternative names. The metadata service
+NICs keep the names udev gives them, such as `ens3`. The metadata service
 keys each NIC's entry in the network config by the NIC's role, `public0` or
 `private0`, and puts the default route and the nameservers on `public0`, or
 on `private0` if the VM has no public NIC. The datasource replaces each role
@@ -59,203 +157,50 @@ key in the names of the files it writes. An entry keeps its role, and the
 datasource logs a warning, if no NIC has its MAC or another entry already has
 that name.
 
-On later boots, cloud-init uses its cached copy if the VM's DMI serial number
-is still the cached instance id. The datasource never reads the metadata
-service again, and the network written on the first boot stays.
+On later boots, cloud-init uses its cached copy while the VM's DMI serial
+number is still the cached instance ID. The datasource doesn't read the
+metadata service again, and the network written on the first boot stays.
 
-The settings are chosen so that a failure leaves the VM as it was:
+**The password.** Only on a VM's first boot, and only when this package's
+datasource found the VM, the password unit asks for `GET /v1/password`. It
+sets root's password with `chpasswd`, writes the SSH setting, checks both, and
+records the result in `password.json`. The reporter then confirms it with
+`POST /v1/password/ack`, which lets the platform delete the password. A VM
+created with SSH keys only gets `404`, and nothing is set.
 
-- **The datasource finds nothing.** `network: {config: disabled}` makes
-  cloud-init leave the network alone, instead of writing DHCP for the first
-  NIC only. The datasource ranks its own network config above this setting,
-  so the first boot still gets the real network.
-- **The package is removed but its settings stay** (as `apt remove` does).
-  The datasource is a top-level module, so cloud-init reports that it found
-  no datasource. A module inside a package named in `datasource_pkg_list`
-  would make every cloud-init stage fail instead.
-- **`datasource_list` stays on one line.** ds-identify only reads a
-  single-line list. With `policy: enabled`, ds-identify runs cloud-init on
-  every boot and leaves the list as written.
-
-The datasource uses only the parts of cloud-init that are the same in every
-supported version, so it does its own HTTP and sets the temporary address
-with `ip`.
-
-## What it does at boot
-
-Two systemd units, both started only when cloud-init runs:
-
-| Unit | Runs | Does |
-|---|---|---|
-| `sc-guest-password.service` | every boot, after cloud-init's local stage and before its network stage | on the first boot of a VM created with a root password, sets it |
-| `sc-guest-report.service` | every boot, in the background once the network is up | tells the platform whether the VM finished booting, and confirms a password it set |
-
-**The password.** The unit asks the metadata service for the password with
-`GET /v1/password`. It does this only on a VM's first boot, and only when
-cloud-init found the VM's metadata with this package's datasource. Then it:
-
-1. sets root's password with `chpasswd`
-2. checks root's entry in `/etc/shadow` with perl's `crypt()`
-3. allows password login over SSH, root included, with
-   `/etc/ssh/sshd_config.d/55-sc-guest-password.conf`
-4. checks that `sshd -T` shows `passwordauthentication yes` and
-   `permitrootlogin yes`, with a throwaway host key, since the VM has none
-   yet
-5. reloads sshd if it's running, and records the result in
-   `/var/lib/sc-guest/password.json`
-
-The reporter then confirms it with `POST /v1/password/ack`, on that boot or a
-later one, which lets the platform delete the password. If a step fails,
-nothing is confirmed, the boot report carries the error, and the next boot
-tries again.
-
-A VM created with SSH keys only gets `404` from `/v1/password`. Nothing is
-set, the drop-in isn't written, and the VM never asks again.
-
-Two settings decide which password and SSH setting win:
-
-- **The unit runs before cloud-init's network stage**, where Ubuntu applies a
-  password from the customer's user data, so the customer's wins. Debian
-  applies it later, so the customer's wins there too.
-- **sshd keeps the first value it reads, in filename order.** cloud-init
-  writes a customer's `ssh_pwauth` to `50-cloud-init.conf`, which wins over
-  `55-sc-guest-password.conf`. That in turn wins over image defaults such as
-  Ubuntu's `60-cloudimg-settings.conf`.
+The password unit retries exactly as the datasource does, because the rest of
+the boot waits for it. If the service still hasn't answered, the unit sets
+nothing, and the next boot tries again.
 
 **The boot report.** `POST /v1/report/boot` says `done`, or `error` with the
 errors from this boot's setup, read from cloud-init's
-`/run/cloud-init/status.json`:
+`/run/cloud-init/status.json`: its local and network stages, the password
+unit, and, when no datasource loaded, the reason cloud-init gave. Failures of
+your own scripts, `bootcmd`'s included, don't count. The reporter retries in
+the background with no limit, backing off to 60 s, so it never holds up the
+boot.
 
-- errors from cloud-init's local and network stages: the datasource, network,
-  hostname and SSH keys
-- the password unit's error, if it had one
-- when no datasource loaded, the reason cloud-init gave. cloud-init 25.1 and
-  26.x say why. Debian 12's 22.4.2 only says that none was found.
+## Uninstall
 
-Failures of the customer's own scripts don't count, because a broken customer
-script isn't a failed boot. Those run in cloud-init's later stages, except
-`bootcmd`, which is left out too.
+`sudo apt remove sc-guest` is the tested way. It keeps the package's
+cloud-init settings, so cloud-init then finds no datasource and leaves the
+network as it is.
 
-The reporter doesn't wait for cloud-init to finish, and it's never ordered
-after `cloud-final.service`. That unit is ordered after `multi-user.target`,
-so ordering a unit that `multi-user.target` wants after it would make a cycle,
-and systemd silently drops a unit to break one.
+`sudo apt purge sc-guest` also deletes those settings and `/var/lib/sc-guest`.
+What cloud-init does on the next boot after a purge isn't tested.
 
-**Retries.** The password unit retries exactly as the datasource does, 30
-times, because the rest of the boot waits for it. If the metadata service
-still hasn't answered, the unit sets nothing, the boot report carries the
-error, and the next boot tries again. The reporter waits up to 6 s for each
-answer, just longer than the metadata service's own 5 s. It retries in the
-background with no limit, backing off to 60 s, so it never holds up the boot.
+Neither removes `/etc/ssh/sshd_config.d/55-sc-guest-password.conf`, since the
+VM may depend on password login. Delete it and reload sshd to go back to the
+image's SSH settings.
 
-**Files it writes:**
+## Reporting problems
 
-| Path | Holds |
-|---|---|
-| `/var/lib/sc-guest/password.json` | the instance ID and whether its password was set, confirmed, or not needed |
-| `/run/sc-guest/password-error` | this boot's password error, for this boot's report |
-| `/etc/ssh/sshd_config.d/55-sc-guest-password.conf` | the SSH setting, on VMs created with a password |
-
-The state is kept per instance ID, so a VM made from another VM's disk sets
-its own password. Purging the package removes `/var/lib/sc-guest`, but leaves
-the SSH setting in place, since the VM may depend on it.
-
-**Why Python.** Both commands are one Python 3 script that uses only the
-standard library. `python3` is on every supported system, because cloud-init
-depends on it, and it can make HTTP requests and read JSON. perl-base, the
-other interpreter that's always installed, can do neither without modules
-from perl's full package, and curl isn't installed with cloud-init. The
-script never imports cloud-init, so a cloud-init update can't break it.
-
-## Supported systems
-
-| System | cloud-init it ships |
-|---|---|
-| Ubuntu 22.04 | 26.1 |
-| Ubuntu 24.04 | 26.2 |
-| Debian 12 | 22.4.2 |
-| Debian 13 | 25.1.4 |
-
-Ubuntu releases new cloud-init versions into its LTS releases, so the
-package is tested every night against the version each system is about to
-ship, as well as on every pull request against the version it ships today.
-
-## Installing
-
-Strettch Cloud images come with `sc-guest` installed. It's published to the
-Strettch Cloud APT repository, so `apt` upgrades it like any other package.
-
-## Building
-
-The package is built on Ubuntu 22.04, the oldest supported system, with
-[debhelper](https://manpages.debian.org/debhelper). With Docker:
-
-```bash
-docker run --rm -v "$PWD":/src -w /src ubuntu:22.04 bash -c '
-  apt-get update &&
-  apt-get install -y --no-install-recommends debhelper dh-python build-essential &&
-  .github/scripts/build-deb.sh 0.0.0-dev.1'
-```
-
-The package lands in `dist/`, with `packages.sha256` next to it.
-
-## Testing
-
-Each test runs as root in a throwaway container of a supported system. The
-tests that talk to the fake metadata service put its address on the
-container's loopback, which needs `--cap-add NET_ADMIN`:
-
-```bash
-docker run --rm --cap-add NET_ADMIN -v "$PWD":/src:ro -w /src debian:12 bash -c '
-  tests/setup-cloud-init.sh archive &&
-  tests/datasource.sh dist/sc-guest_*_all.deb &&
-  tests/lifecycle.sh dist/sc-guest_*_all.deb &&
-  tests/units.sh dist/sc-guest_*_all.deb &&
-  tests/password.sh dist/sc-guest_*_all.deb &&
-  tests/report.sh dist/sc-guest_*_all.deb &&
-  tests/root-login.sh dist/sc-guest_*_all.deb'
-```
-
-- `datasource.sh` installs the package and runs `test_datasource.py` against
-  the system's own cloud-init. The metadata service is a local HTTP server,
-  and `ip` and `/sys/class/net` are faked. The tests run under coverage, and
-  fail if they run less than 98% of the installed code's statements and
-  branches.
-- `lifecycle.sh` installs, removes and purges the package. After the remove,
-  it runs cloud-init's local stage with the settings that stay.
-- `units.sh` checks that the units are valid, and that
-  `systemd-analyze verify` finds no ordering cycle at boot.
-- `password.sh` runs the password unit and the ack against a fake metadata
-  service: keys-only VMs, sshd's drop-in order, retries and reboots.
-- `report.sh` checks the boot report from the system's real cloud-init:
-  done, a failing `bootcmd`, and a datasource that's missing or fails.
-- `root-login.sh` runs the system's real cloud-init for a VM created with an
-  SSH key, then logs in to a local sshd as root with that key. It also
-  checks that a customer's `disable_root: true` still wins.
-
-`setup-cloud-init.sh proposed` installs the cloud-init update the system is
-about to ship instead, as the nightly run does.
-
-| Workflow | Runs on | Does |
-|---|---|---|
-| `pr.yml` | every pull request | shellcheck, pyflakes, build, lintian, tests with coverage on all four systems, then a comment with each system's coverage |
-| `nightly.yml` | every night | the same tests with each system's proposed cloud-init |
-| `beta.yml` | every merge to `main` | beta pre-release |
-| `release.yml` | manual, from `main` | stable release |
-
-## Versions and releases
-
-Stable releases are tagged `X.Y.Z` and betas `X.Y.Z-beta.N`. Inside the
-package, a beta's version is `X.Y.Z~beta.N`, because apt sorts `~` before
-anything, so a beta is older than its stable release. Release files are named
-after the tag, for example `sc-guest_1.2.0-beta.3_all.deb`.
-
-Every release carries a build attestation. To check that a package was built
-by this repository's release workflow:
-
-```bash
-gh attestation verify sc-guest_1.2.0_all.deb -R strettch-cloud/sc-guest
-```
+- Bugs: [open an issue](https://github.com/strettch-cloud/sc-guest/issues)
+  with the system, the version from `dpkg-query -W sc-guest`, and the logs
+  above. Leave out passwords and user data.
+- Security problems: see [SECURITY.md](SECURITY.md). Don't open a public
+  issue.
+- Building, testing and releasing: see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
