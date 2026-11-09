@@ -17,10 +17,17 @@ The package:
 |---|---|
 | `/usr/lib/python3/dist-packages/DataSourceStrettchCloud.py` | the cloud-init datasource |
 | `/usr/lib/python3/dist-packages/sc_guest/` | helpers that don't need cloud-init, such as `sc_guest.metadata` for reading the metadata service |
-| `/etc/cloud/cloud.cfg.d/95_sc-guest.cfg` | `datasource_list: [ StrettchCloud ]` and `network: {config: disabled}` |
+| `/etc/cloud/cloud.cfg.d/95_sc-guest.cfg` | `datasource_list: [ StrettchCloud ]`, `network: {config: disabled}` and `disable_root: false` |
 | `/etc/cloud/ds-identify.cfg` | `policy: enabled` |
 | `/usr/lib/sc-guest/sc-guest` | the password and boot-report commands |
 | `/usr/lib/systemd/system/sc-guest-password.service`, `sc-guest-report.service` | the units that run them |
+
+`disable_root: false` lets root log in over SSH with the VM's keys.
+cloud-init's default, and the value in Ubuntu's and Debian's
+`/etc/cloud/cloud.cfg`, is `true`: root's keys then only print a message
+saying to log in as the default user, such as `ubuntu`. A customer's user
+data can still set it back to `true`, because cloud-init ranks user data
+above `/etc/cloud/cloud.cfg.d`.
 
 ## How the datasource works
 
@@ -201,7 +208,8 @@ docker run --rm --cap-add NET_ADMIN -v "$PWD":/src:ro -w /src debian:12 bash -c 
   tests/lifecycle.sh dist/sc-guest_*_all.deb &&
   tests/units.sh dist/sc-guest_*_all.deb &&
   tests/password.sh dist/sc-guest_*_all.deb &&
-  tests/report.sh dist/sc-guest_*_all.deb'
+  tests/report.sh dist/sc-guest_*_all.deb &&
+  tests/root-login.sh dist/sc-guest_*_all.deb'
 ```
 
 - `datasource.sh` installs the package and runs `test_datasource.py` against
@@ -217,6 +225,9 @@ docker run --rm --cap-add NET_ADMIN -v "$PWD":/src:ro -w /src debian:12 bash -c 
   service: keys-only VMs, sshd's drop-in order, retries and reboots.
 - `report.sh` checks the boot report from the system's real cloud-init:
   done, a failing `bootcmd`, and a datasource that's missing or fails.
+- `root-login.sh` runs the system's real cloud-init for a VM created with an
+  SSH key, then logs in to a local sshd as root with that key. It also
+  checks that a customer's `disable_root: true` still wins.
 
 `setup-cloud-init.sh proposed` installs the cloud-init update the system is
 about to ship instead, as the nightly run does.
