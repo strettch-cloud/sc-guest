@@ -99,7 +99,7 @@ class DataSourceStrettchCloud(sources.DataSource):
             if key != "network-config"
         }
         self.metadata["local-hostname"] = document["hostname"]
-        self._network_config = document["network-config"]
+        self._network_config = _key_by_nic_name(document["network-config"])
         self.userdata_raw = user_data
         self.vendordata_raw = vendor_data
         LOG.info("Read instance %s", document["instance-id"])
@@ -138,23 +138,66 @@ def _remove_temporary_address(nic):
     LOG.info("Removed temporary address from %s", nic)
 
 
+def _key_by_nic_name(config):
+    """Keys each ethernets entry by the physical NIC that has its MAC.
+
+    The metadata service keys each entry by the NIC's role, such as public0.
+    netplan puts the key in its file names, and cloud-init's own networkd and
+    ENI renderers use it as the interface's name. The entry's match stays and
+    no set-name is added, so the NIC keeps the name udev gave it.
+    """
+    ethernets = config.get("ethernets")
+    if not ethernets:
+        return config
+    nics = _nics_by_mac()
+    keyed = {}
+    for key, entry in ethernets.items():
+        mac = entry.get("match", {}).get("macaddress")
+        name = nics.get(str(mac).lower())
+        if name is None:
+            LOG.warning(
+                "No physical NIC has MAC %s; keeping the network config key %s",
+                mac,
+                key,
+            )
+            name = key
+        elif name != key and (name in ethernets or name in keyed):
+            LOG.warning(
+                "%s is already a network config key; keeping %s", name, key
+            )
+            name = key
+        keyed[name] = entry
+    return {**config, "ethernets": keyed}
+
+
+def _physical_nics():
+    """NICs backed by a device, so not bridges, veths or tunnels."""
+    return [
+        name
+        for name in os.listdir(SYS_CLASS_NET)
+        if os.path.exists(os.path.join(SYS_CLASS_NET, name, "device"))
+    ]
+
+
 def _first_nic():
     """The physical NIC with the lowest interface index."""
-    nics = []
-    for name in os.listdir(SYS_CLASS_NET):
-        path = os.path.join(SYS_CLASS_NET, name)
-        if not os.path.exists(os.path.join(path, "device")):
-            continue
-        with open(os.path.join(path, "ifindex")) as f:
-            nics.append((int(f.read()), name))
+    nics = [(int(_read(nic, "ifindex")), nic) for nic in _physical_nics()]
     if not nics:
         raise RuntimeError(f"no network interface in {SYS_CLASS_NET}")
     return min(nics)[1]
 
 
+def _nics_by_mac():
+    return {_read(nic, "address").lower(): nic for nic in _physical_nics()}
+
+
 def _is_up(nic):
-    with open(os.path.join(SYS_CLASS_NET, nic, "flags")) as f:
-        return bool(int(f.read(), 16) & 0x1)  # IFF_UP
+    return bool(int(_read(nic, "flags"), 16) & 0x1)  # IFF_UP
+
+
+def _read(nic, attribute):
+    with open(os.path.join(SYS_CLASS_NET, nic, attribute)) as f:
+        return f.read().strip()
 
 
 def _ip(*args):
