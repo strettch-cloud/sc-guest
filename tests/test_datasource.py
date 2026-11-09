@@ -314,7 +314,7 @@ class TestFirstBoot(FakeHost):
         routes = document_routes()
         routes["/v1/metadata.json"] = (
             502,
-            b'{"code": "METAGATE_UPSTREAM_UNREACHABLE"}',
+            b'{"code": "SERVICE_UNREACHABLE"}',
         )
         with mock.patch.object(metadata, "RETRIES", 2):
             with FakeService(routes) as service:
@@ -438,8 +438,8 @@ class TestRetries(FakeHost):
             [
                 urllib.error.URLError(ConnectionRefusedError()),
                 socket.timeout("timed out"),
-                self.http_error(502, "METAGATE_UPSTREAM_UNREACHABLE"),
-                self.http_error(429, "METAGATE_TOO_MANY_REQUESTS"),
+                self.http_error(502, "SERVICE_UNREACHABLE"),
+                self.http_error(429, "TOO_MANY_REQUESTS"),
                 self.http_error(503, "NOT_READY"),
                 self.http_error(403, "HOST_SCOPE_MISMATCH"),
                 ConnectionResetError(),
@@ -451,12 +451,12 @@ class TestRetries(FakeHost):
 
     def test_gives_up_after_30_retries(self):
         attempts = self.fail_then_answer(
-            [self.http_error(502, "METAGATE_UPSTREAM_UNREACHABLE")
+            [self.http_error(502, "SERVICE_UNREACHABLE")
              for _ in range(31)]
         )
         with self.assertRaisesRegex(
             metadata.Unavailable,
-            "failed 31 times, last with HTTP 502 METAGATE_UPSTREAM_UNREACHABLE",
+            "failed 31 times, last with HTTP 502 SERVICE_UNREACHABLE",
         ):
             metadata.get("metadata.json")
         self.assertEqual(len(attempts), 31)
