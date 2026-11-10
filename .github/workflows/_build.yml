@@ -19,6 +19,7 @@ jobs:
   scan:
     name: Scan for injected payloads
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -36,19 +37,24 @@ jobs:
     # The oldest supported system. debhelper writes the package's install and
     # remove scripts, and they have to run on every supported system.
     container: mirror.gcr.io/library/ubuntu:22.04
+    timeout-minutes: 10
     env:
       VERSION: ${{ inputs.version }}
       DEBIAN_FRONTEND: noninteractive
     steps:
-      - name: Install build tools
-        run: |
-          apt-get update --quiet --quiet
-          apt-get install --yes --quiet --quiet --no-install-recommends debhelper dh-python build-essential
-
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      # One --quiet keeps apt's "Get:" lines, so a timeout shows what it was
+      # downloading and from where.
+      - name: Install build tools
+        timeout-minutes: 5
+        run: |
+          .github/scripts/apt-mirrors.sh
+          apt-get update --quiet
+          apt-get install --yes --quiet --no-install-recommends debhelper dh-python build-essential
 
       - name: Check version mapping
         run: tests/versions.sh
@@ -72,13 +78,15 @@ jobs:
     runs-on: ubuntu-24.04
     # Debian's newest lintian knows the current packaging rules.
     container: mirror.gcr.io/library/debian:13
+    timeout-minutes: 10
     env:
       DEBIAN_FRONTEND: noninteractive
     steps:
       - name: Install lintian
+        timeout-minutes: 5
         run: |
-          apt-get update --quiet --quiet
-          apt-get install --yes --quiet --quiet --no-install-recommends lintian
+          apt-get update --quiet
+          apt-get install --yes --quiet --no-install-recommends lintian
 
       - name: Download package
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2

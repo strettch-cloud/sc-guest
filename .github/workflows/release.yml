@@ -31,6 +31,7 @@ jobs:
     # Dispatching from any other branch would release unreviewed code.
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     permissions:
       contents: read
     outputs:
@@ -77,6 +78,7 @@ jobs:
     name: Publish GitHub release
     needs: [validate, build]
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       contents: write      # create the tag and the release
       id-token: write      # sign the build provenance

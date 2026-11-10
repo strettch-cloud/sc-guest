@@ -46,8 +46,8 @@ elif [[ "$SOURCE" != archive ]]; then
     exit 1
 fi
 
-apt-get update --quiet --quiet
-apt-get install --yes --quiet --quiet --no-install-recommends cloud-init
+apt-get update --quiet
+apt-get install --yes --quiet --no-install-recommends cloud-init
 
 echo "$PRETTY_NAME: cloud-init $(dpkg-query -W -f='${Version}' cloud-init) ($SOURCE)"
 if [[ "$SOURCE" == proposed ]]; then
