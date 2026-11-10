@@ -1,0 +1,56 @@
+# _contract.yml - Run the contract test and keep the contract it writes.
+# Called by pr.yml and release.yml; never triggered on its own. Holds no write
+# token and no OIDC token, so the packages it installs from PyPI can't publish
+# or sign.
+name: Contract Test
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: 'The version the requests carry: a release tag (1.2.0) or a CI version (0.0.0-ci.42)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: Metadata service contract
+    # pact-python needs Python 3.11 or later, and Ubuntu 22.04 has 3.10, so
+    # this runs on the runner and not in the supported systems' containers.
+    # The requests are the same on all of them.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      SC_GUEST_VERSION: ${{ inputs.version }}
+      PACT_DIR: contract
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Wheels only, each checked against the hash in requirements.txt.
+      - name: Install pact-python
+        timeout-minutes: 3
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet --require-hashes --only-binary :all: \
+            -r tests/contract/requirements.txt
+
+      - name: Run the contract test
+        run: |
+          "$RUNNER_TEMP/venv/bin/python" -I tests/contract/test_metadata_contract.py -v
+          (cd "$PACT_DIR" && sha256sum -- sc-guest-metadata-api.json > sc-guest-metadata-api.json.sha256)
+
+      - name: Upload contract
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: contract
+          path: |
+            contract/sc-guest-metadata-api.json
+            contract/sc-guest-metadata-api.json.sha256
+          if-no-files-found: error
+          retention-days: 1

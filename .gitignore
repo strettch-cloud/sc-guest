@@ -1,6 +1,9 @@
 # Build output
 /dist/
 
+# Written by tests/contract/test_metadata_contract.py
+/build/
+
 # Written by .github/scripts/build-deb.sh
 /debian/changelog
 

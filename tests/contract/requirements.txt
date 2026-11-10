@@ -1,0 +1,19 @@
+# What tests/contract/test_metadata_contract.py needs: pact-python and
+# everything it depends on, each pinned to one version. The hashes cover the
+# wheels for Python 3.12 on x86-64 Linux, where CI runs, and on Apple-silicon
+# macOS. Install with:
+#   pip install --require-hashes --only-binary :all: -r tests/contract/requirements.txt
+# To update, change the versions and take the new wheels' SHA-256 hashes from
+# each release's files on pypi.org.
+pact-python==4.2.0 \
+    --hash=sha256:99bf0e5fbf6211a46bb0b362282fbdd09da4b59106b3ad02d10232f716f24965
+pact-python-ffi==0.5.12.1 \
+    --hash=sha256:13a52870794da25b38c099c6aaa227defda168ce6ff74fb2c7240e95e7a72dde \
+    --hash=sha256:683d73a6f53158442103fccbae7fde40e224a2feb7b535d91037f12170741c71
+cffi==2.1.1 \
+    --hash=sha256:f81b3b8f3d4e343550fa4baa0e479bba9f2d29ce9c2e9b51d1ce1718d7442fcf \
+    --hash=sha256:c1453022f490d2459a11819d83ad1d586e9ff65a12ac3e705ffebd46d3685dcf
+pycparser==3.12 \
+    --hash=sha256:a076f3f489b39b43ed13563a1dafe42447445bec2e294154ec5c57fcdda4c85e
+typing-extensions==4.16.0 \
+    --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8
