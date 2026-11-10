@@ -152,7 +152,8 @@ def _key_by_nic_name(config):
     nics = _nics_by_mac()
     keyed = {}
     for key, entry in ethernets.items():
-        mac = entry.get("match", {}).get("macaddress")
+        match = entry.get("match") or {}
+        mac = match.get("macaddress")
         name = nics.get(str(mac).lower())
         if name is None:
             LOG.warning(

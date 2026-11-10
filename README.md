@@ -11,8 +11,11 @@ It:
 - lets root log in over SSH with the VM's SSH keys
 - on the first boot of a VM created with a root password, sets that password
   and allows password login over SSH
-- tells the platform on every boot whether the VM finished booting, and
-  which version of sc-guest it runs
+- tells the platform on every boot whether the VM's setup succeeded, and
+  which version of sc-guest it runs. Setup means the root password and
+  cloud-init's local and network stages, which set up the network, hostname
+  and SSH keys. Commands run with `bootcmd`, and everything cloud-init does
+  after those stages, such as `runcmd`, aren't checked.
 
 It's only for Strettch Cloud VMs. On any other cloud, cloud-init finds no
 datasource and sets up nothing, not even the network.

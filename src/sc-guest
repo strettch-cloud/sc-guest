@@ -1,6 +1,6 @@
 #!/usr/bin/python3 -I
 """Sets the root password chosen when the VM was created, and tells the
-platform whether the VM finished booting.
+platform whether this boot's setup succeeded.
 
   sc-guest password   run once per boot by sc-guest-password.service, before
                       cloud-init's network stage
@@ -8,9 +8,10 @@ platform whether the VM finished booting.
                       background once the network is up
 
 Only the Python standard library and this package's sc_guest module are
-used, never cloud-init's code, so a cloud-init update can't break either
-command. cloud-init's files are read as data: its status file and the current
-instance ID.
+used, never cloud-init's code, so changes to cloud-init's code can't break
+either command. cloud-init's files are read as data: its status file and the
+current instance ID. A cloud-init update that changes either one could break
+them.
 """
 
 import http.client
