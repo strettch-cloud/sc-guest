@@ -34,17 +34,19 @@ The package lands in `dist/`, with `packages.sha256` next to it.
 
 Each test runs as root in a throwaway container of a supported system. The
 tests that talk to the fake metadata service put its address on the
-container's loopback, which needs `--cap-add NET_ADMIN`:
+container's loopback, which needs `--cap-add NET_ADMIN`. `dist/` keeps the
+packages of earlier builds, so name the one you just built:
 
 ```bash
 docker run --rm --cap-add NET_ADMIN -v "$PWD":/src:ro -w /src debian:12 bash -c '
+  deb=dist/sc-guest_0.0.0-dev.1_all.deb &&
   tests/setup-cloud-init.sh archive &&
-  tests/datasource.sh dist/sc-guest_*_all.deb &&
-  tests/lifecycle.sh dist/sc-guest_*_all.deb &&
-  tests/units.sh dist/sc-guest_*_all.deb &&
-  tests/password.sh dist/sc-guest_*_all.deb &&
-  tests/report.sh dist/sc-guest_*_all.deb &&
-  tests/root-login.sh dist/sc-guest_*_all.deb'
+  tests/datasource.sh "$deb" &&
+  tests/lifecycle.sh "$deb" &&
+  tests/units.sh "$deb" &&
+  tests/password.sh "$deb" &&
+  tests/report.sh "$deb" &&
+  tests/root-login.sh "$deb"'
 ```
 
 - `datasource.sh` installs the package and runs `test_datasource.py` against
@@ -100,4 +102,6 @@ Both commands are one Python 3 script that uses only the standard library.
 it can make HTTP requests and read JSON. perl-base, the other interpreter
 that's always installed, can do neither without modules from perl's full
 package, and curl isn't installed with cloud-init. The script never imports
-cloud-init, so a cloud-init update can't break it.
+cloud-init, so changes to cloud-init's code can't break it. It does read two
+files cloud-init writes, its status file and the instance ID, so a cloud-init
+update that changes either one could.

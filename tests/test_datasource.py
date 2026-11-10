@@ -592,6 +592,18 @@ class TestNicNames(FakeHost):
             ],
         )
 
+    def test_keeps_the_key_when_the_match_is_null(self):
+        config = {"version": 2, "ethernets": {"public0": {"match": None}}}
+        with self.assertLogs(ds_module.LOG, "WARNING") as logs:
+            self.assertEqual(self.network_config(config), config)
+        self.assertEqual(
+            [record.getMessage() for record in logs.records],
+            [
+                "No physical NIC has MAC None; keeping the network config "
+                "key public0",
+            ],
+        )
+
     def test_keeps_the_key_when_the_name_is_taken(self):
         absent = {"match": {"macaddress": "02:00:00:00:00:99"}}
         config = {
