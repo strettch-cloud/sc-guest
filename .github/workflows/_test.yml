@@ -29,6 +29,7 @@ jobs:
     container:
       image: mirror.gcr.io/library/${{ matrix.os }}
       options: --cap-add NET_ADMIN
+    timeout-minutes: 15
     env:
       CLOUD_INIT: ${{ inputs.cloud_init }}
     steps:
@@ -44,7 +45,10 @@ jobs:
           path: dist
 
       - name: Install cloud-init
-        run: tests/setup-cloud-init.sh "$CLOUD_INIT"
+        timeout-minutes: 5
+        run: |
+          .github/scripts/apt-mirrors.sh
+          tests/setup-cloud-init.sh "$CLOUD_INIT"
 
       - name: Test the datasource
         env:
