@@ -74,9 +74,19 @@ jobs:
     with:
       version: ${{ needs.validate.outputs.version }}
 
+  # The contract of this version: what it asks of the metadata service.
+  contract:
+    name: Contract
+    needs: validate
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_contract.yml
+    with:
+      version: ${{ needs.validate.outputs.version }}
+
   publish:
     name: Publish GitHub release
-    needs: [validate, build]
+    needs: [validate, build, contract]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -99,6 +109,12 @@ jobs:
           name: package
           path: dist
 
+      - name: Download contract
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: contract
+          path: contract
+
       - name: Attest build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
@@ -112,13 +128,15 @@ jobs:
             echo "**Type:** ${RELEASE_TYPE} · **Build:** ${GITHUB_SHA}"
           } > release-notes.md
 
-      # The tag is created by the API at the exact commit that was built.
+      # The tag is created by the API at the exact commit that was built. The
+      # contract has its own checksum file: packages.sha256 lists only packages.
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           gh release create "$VERSION" dist/*.deb dist/packages.sha256 \
+            contract/sc-guest-metadata-api.json contract/sc-guest-metadata-api.json.sha256 \
             --target "$GITHUB_SHA" \
             --title "Release v$VERSION" \
             --notes-file release-notes.md \

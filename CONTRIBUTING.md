@@ -11,6 +11,7 @@
 | `config/` | the cloud-init and ds-identify settings |
 | `debian/` | the packaging |
 | `tests/` | the tests, run in containers |
+| `tests/contract/` | the contract test, run on its own |
 | `.github/` | CI, and the build and release scripts |
 
 The reasons behind each setting sit next to it, in the config files, the
@@ -66,16 +67,39 @@ docker run --rm --cap-add NET_ADMIN -v "$PWD":/src:ro -w /src debian:12 bash -c 
   SSH key, then logs in to a local sshd as root with that key. It also
   checks that a customer's `disable_root: true` still wins.
 
+### The contract test
+
+`tests/contract/test_metadata_contract.py` runs the package's own client code
+against a [Pact](https://docs.pact.io) mock server, straight from the source
+tree. Each test describes one request to the metadata service and the answer
+the code relies on, and fails unless the code sends exactly that request.
+Together they write `build/pacts/sc-guest-metadata-api.json`, the contract
+the metadata service is checked against.
+
+It needs pact-python, which needs Python 3.11 or later, so it doesn't run in
+the containers above. The requests are the same on all four systems.
+
+```bash
+python3 -m venv /tmp/contract-venv
+/tmp/contract-venv/bin/pip install --require-hashes --only-binary :all: \
+  -r tests/contract/requirements.txt
+/tmp/contract-venv/bin/python -I tests/contract/test_metadata_contract.py -v
+```
+
+A change to what the package sends, or to what it needs back, changes the
+contract. Describe only what the code relies on: match answers by type, and
+leave out error bodies and fields the code doesn't read.
+
 Ubuntu releases new cloud-init versions into its LTS releases.
 `setup-cloud-init.sh proposed` installs the version the system is about to
 ship instead, as the nightly run does.
 
 | Workflow | Runs on | Does |
 |---|---|---|
-| `pr.yml` | every pull request | shellcheck, pyflakes, build, lintian, tests with coverage on all four systems, then a comment with each system's coverage |
+| `pr.yml` | every pull request | shellcheck, pyflakes, build, lintian, tests with coverage on all four systems, the contract test, then a comment with each system's coverage |
 | `nightly.yml` | every night | the same tests with each system's proposed cloud-init |
 | `beta.yml` | every merge to `main` | beta pre-release |
-| `release.yml` | manual, from `main` | stable release |
+| `release.yml` | manual, from `main` | stable release, with that version's contract |
 
 ## Commits and pull requests
 
@@ -94,6 +118,12 @@ after the tag, for example `sc-guest_1.2.0-beta.3_all.deb`.
 
 Every release carries a build attestation, which `gh attestation verify`
 checks.
+
+A stable release also carries its contract, `sc-guest-metadata-api.json`,
+written by the contract test at the released commit. After each stable
+release, copy that file into the metadata service's list of contracts. The
+service is checked against every file on the list, and a released version's
+file is never changed or removed: VMs keep running old versions.
 
 ## Why Python
 

@@ -28,6 +28,16 @@ Strettch Cloud images come with it, and `apt` keeps it up to date. Each
 release's `.deb` is also on
 [Releases](https://github.com/strettch-cloud/sc-guest/releases).
 
+## Contract with the metadata service
+
+Each stable release also carries `sc-guest-metadata-api.json`, with its
+checksum in `sc-guest-metadata-api.json.sha256`. It's a
+[Pact](https://docs.pact.io) contract: every request that version sends to
+the metadata service and what it needs back, recorded by a test that runs
+the package's own code. The metadata service is checked against the contract
+of every released version, so a change there can't break a version that VMs
+still run. The file holds example values only.
+
 ## More
 
 - [CONTRIBUTING.md](CONTRIBUTING.md): building, testing and releasing
