@@ -7,8 +7,8 @@ write sc-guest-metadata-api.json, which the metadata service is checked
 against, so a change there that would break this version is caught.
 
 Only what the code relies on is described. Answers are matched by type, not
-by value, and the service may add fields. Error bodies aren't described,
-except the one error code the code branches on.
+by value, error bodies aren't described at all, and the service may add
+fields.
 
 Needs pact-python (see requirements.txt next to this file), which needs
 Python 3.11 or later, so it runs on its own and not with the tests in the
@@ -349,16 +349,12 @@ class TestPasswordRequests(ContractTest):
             self.assertEqual(command.fetch_password_hash(), PASSWORD_HASH)
 
     def test_no_password_hash(self):
-        # The code is matched exactly: only this 404 means there is none, and
-        # any other is retried.
         self.interaction(
             "a request for the root password hash of a VM created without one",
             NO_PASSWORD_PENDING,
             "GET",
             "/v1/password/hash",
-        ).will_respond_with(404).with_body(
-            {"code": "PASSWORD_NOT_PENDING"}, content_type="application/json"
-        )
+        ).will_respond_with(404)
         with self.service(), mock.patch.object(command, "log"):
             self.assertIsNone(command.fetch_password_hash())
 

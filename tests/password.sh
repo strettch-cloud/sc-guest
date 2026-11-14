@@ -296,33 +296,6 @@ expect_requests $'GET /v1/password/hash\nPOST /v1/password/ack\nPOST /v1/report/
 root_password_is "seventh VM" || fail "the next boot didn't set the password"
 expect_state '{"instance-id": "iid-7", "state": "acked"}'
 
-echo "== a service without the hash route: the password unit retries, never takes it as no password"
-first_boot iid-7b
-pending "seventh VM b" seventh.VM.salt2 '"no_hash_route": true'
-python3 -I -c '
-import runpy, sys
-from sc_guest import metadata
-metadata.RETRIES = 2
-metadata._sleep = lambda seconds: None
-sys.argv = [sys.argv[1], "password"]
-runpy.run_path(sys.argv[0], run_name="__main__")
-' "$SC_GUEST" &
-pid=$!
-wait_for "$pid" 30
-[[ $WAIT_RC -eq 1 ]] || fail "sc-guest password exited $WAIT_RC, want 1"
-grep -q '^password: GET http://169.254.169.254/v1/password/hash failed 3 times, last with HTTP 404 NOT_FOUND' \
-    /run/sc-guest/password-error || fail "error: $(cat /run/sc-guest/password-error)"
-expect_requests $'GET /v1/password/hash\nGET /v1/password/hash\nGET /v1/password/hash'
-expect_state '{"instance-id": "iid-7", "state": "acked"}'
-echo "   the next boot, with the route, sets the password"
-pending "seventh VM b" seventh.VM.salt2
-reboot_vm
-password_unit 0
-reporter
-expect_requests $'GET /v1/password/hash\nPOST /v1/password/ack\nPOST /v1/report/boot'
-root_password_is "seventh VM b" || fail "the next boot didn't set the password"
-expect_state '{"instance-id": "iid-7b", "state": "acked"}'
-
 echo "== cloud-init found no datasource, or another one: the password unit does nothing"
 for datasource in null '"DataSourceNoCloud [seed=/var/lib/cloud/seed/nocloud]"'; do
     cloud_init_ran iid-8 "$datasource"

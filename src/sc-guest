@@ -242,7 +242,7 @@ def fetch_password_hash():
     created without one. Retries exactly as the datasource does, then raises
     metadata.Unavailable: this unit runs before the rest of the boot, so it
     must not wait forever."""
-    body = metadata.get("password/hash", none_code="PASSWORD_NOT_PENDING")
+    body = metadata.get("password/hash")
     if body is None:
         log("no password is pending")
         return None
