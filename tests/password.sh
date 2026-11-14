@@ -90,7 +90,10 @@ pending() {
 password_login_output() {
     local askpass
     askpass="$(mktemp)"
-    printf '#!/bin/sh\nprintf "%%s\\n" "$TYPED_PASSWORD"\n' > "$askpass"
+    cat > "$askpass" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$TYPED_PASSWORD"
+EOF
     chmod +x "$askpass"
     ssh-keygen -A >/dev/null
     mkdir -p /run/sshd
