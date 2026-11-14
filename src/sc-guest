@@ -14,6 +14,7 @@ current instance ID. A cloud-init update that changes either one could break
 them.
 """
 
+import ctypes
 import http.client
 import json
 import os
@@ -231,10 +232,13 @@ def reload_sshd():
 
 
 # A crypt(3) hash such as "$6$rounds=100000$salt$digest". Any method is
-# accepted, so the service can change it without a new package; chpasswd -e
-# and the shadow check catch one this system can't use. Nothing that could
-# end the chpasswd line or the shadow field gets through.
+# accepted, so the service can change it without a new package;
+# check_hash_usable refuses one this system can't check a login against.
+# Nothing that could end the chpasswd line or the shadow field gets through.
 PASSWORD_HASH = re.compile(r"\$[0-9a-z]+\$[./0-9A-Za-z$=,]+")
+CRYPT_DIGEST = re.compile(r"[./0-9A-Za-z]+")
+# The library PAM checks logins with. Python 3.13 has no crypt module.
+LIBCRYPT = "libcrypt.so.1"
 
 
 def fetch_password_hash():
@@ -254,6 +258,27 @@ def fetch_password_hash():
     if not isinstance(password_hash, str) or not PASSWORD_HASH.fullmatch(password_hash):
         raise RuntimeError("GET /v1/password/hash answered 200 with something that isn't a crypt(3) hash")
     return password_hash
+
+
+def check_hash_usable(password_hash):
+    """Checks that a typed password can ever match the hash on this system.
+    chpasswd -e writes any string as given, so a hash with a method this
+    system lacks, or a cut-off digest, would leave root with a password no
+    one can type, and the shadow check would still pass. For a method it has,
+    libcrypt rebuilds the hash's settings with a full-length digest; for one
+    it lacks, it answers "*0" or "*1"."""
+    libcrypt = ctypes.CDLL(LIBCRYPT)
+    libcrypt.crypt.restype = ctypes.c_char_p
+    libcrypt.crypt.argtypes = (ctypes.c_char_p, ctypes.c_char_p)
+    rebuilt = (libcrypt.crypt(b"", password_hash.encode()) or b"*").decode()
+    settings, _, digest = password_hash.rpartition("$")
+    if (
+        rebuilt.startswith("*")
+        or len(rebuilt) != len(password_hash)
+        or not rebuilt.startswith(settings + "$")
+        or not CRYPT_DIGEST.fullmatch(digest)
+    ):
+        raise RuntimeError("GET /v1/password/hash answered 200 with a hash this system can't check a password against")
 
 
 def set_password():
@@ -277,6 +302,7 @@ def set_password():
         save_password_state("none")
         return
 
+    check_hash_usable(password_hash)
     result = run(["chpasswd", "-e"], f"root:{password_hash}\n".encode())
     if result.returncode != 0:
         raise RuntimeError(f"chpasswd -e failed: {output(result)}")

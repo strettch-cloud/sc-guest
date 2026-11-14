@@ -242,6 +242,21 @@ last_body /v1/report/boot | grep -q "the password itself" && fail "the boot repo
 [[ "$(getent shadow root | cut -d: -f2)" == "$hash_before" ]] || fail "root's password changed"
 expect_state '{"instance-id": "iid-5", "state": "acked"}'
 
+echo "== a hash no typed password can match: a cut-off digest or an unknown method is not set and not acked"
+for unusable in "$(hash_of "first boot: pässwörd" Ab3dEf6hIj9lMn0p | cut -c1-60)" "\$unknown\$abc"; do
+    first_boot iid-5c
+    hash_before="$(getent shadow root | cut -d: -f2)"
+    fake_config "{\"password_hash\": \"$unusable\"}"
+    password_unit 1
+    grep -qx "password: GET /v1/password/hash answered 200 with a hash this system can't check a password against" \
+        /run/sc-guest/password-error || fail "error: $(cat /run/sc-guest/password-error)"
+    reporter
+    expect_requests $'GET /v1/password/hash\nPOST /v1/report/boot'
+    last_body /v1/report/boot | grep -qF "$unusable" && fail "the boot report holds the answer"
+    [[ "$(getent shadow root | cut -d: -f2)" == "$hash_before" ]] || fail "root's password changed"
+done
+expect_state '{"instance-id": "iid-5", "state": "acked"}'
+
 echo "== metadata service down: the password unit waits for it, the reporter retries"
 first_boot iid-6
 fake_stop
