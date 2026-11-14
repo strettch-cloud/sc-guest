@@ -467,6 +467,24 @@ class TestRetries(FakeHost):
         self.assertIsNone(metadata.get("user-data"))
         self.assertEqual(self.sleeps, [])
 
+    def test_not_found_with_the_none_code_is_none(self):
+        self.fail_then_answer([self.http_error(404, "PASSWORD_NOT_PENDING")])
+        self.assertIsNone(metadata.get("password/hash", none_code="PASSWORD_NOT_PENDING"))
+        self.assertEqual(self.sleeps, [])
+
+    def test_retries_not_found_with_another_code(self):
+        attempts = self.fail_then_answer(
+            [
+                self.http_error(404, "NOT_FOUND"),
+                urllib.error.HTTPError("url", 404, "Not Found", {}, io.BytesIO(b"<html>")),
+            ]
+        )
+        self.assertEqual(
+            metadata.get("password/hash", none_code="PASSWORD_NOT_PENDING"), b"answer"
+        )
+        self.assertEqual(len(attempts), 3)
+        self.assertEqual(self.sleeps, [1, 2])
+
     def test_logs_an_error_without_a_code(self):
         error = urllib.error.HTTPError(
             "url", 502, "Bad Gateway", {}, io.BytesIO(b"<html>")

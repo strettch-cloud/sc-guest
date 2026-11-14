@@ -45,8 +45,13 @@ class Unavailable(Exception):
     """The service gave neither an answer nor a 404 within RETRIES retries."""
 
 
-def get(path):
+def get(path, none_code=None):
     """Returns the body of GET /v1/<path>, or None if the service answers 404.
+
+    With none_code, only a 404 with that error code means None. Any other 404
+    then means the service has no such route, for example one too old for
+    this package, and is retried like a failure: "there is none" must come
+    from the service itself.
 
     Any other answer, or none, is retried RETRIES times, then raises
     Unavailable.
@@ -59,9 +64,10 @@ def get(path):
             with _OPENER.open(request, timeout=TIMEOUT) as response:
                 return response.read()
         except urllib.error.HTTPError as error:
-            if error.code == 404:
+            code = _error_code(error)
+            if error.code == 404 and none_code in (None, code):
                 return None
-            reason = f"HTTP {error.code} {_error_code(error)}".strip()
+            reason = f"HTTP {error.code} {code}".strip()
         except (OSError, http.client.HTTPException) as error:
             reason = repr(error)
         if attempt > RETRIES:

@@ -10,6 +10,8 @@ Usage: fake-metadata.py <dir>
                  pending
   ack_status     the answer to an ack while a password is pending (204)
   report_status  the answer to a boot report (204)
+  no_hash_route  true to answer GET /v1/password/hash as a service without
+                 that route does
 An ack answered with 204 consumes the password, as the real service does.
 GET /v1/password, which only 0.1.0 read, answers 404 as the real service
 does.
@@ -66,6 +68,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if route == ("GET", "/v1/password"):
                 return self.answer(404, {"code": "PASSWORD_NOT_PENDING", "message": "none"})
             if route == ("GET", "/v1/password/hash"):
+                if config.get("no_hash_route"):
+                    return self.answer(404, {"code": "NOT_FOUND", "message": self.path})
                 if config.get("password_hash") is None:
                     return self.answer(404, {"code": "PASSWORD_NOT_PENDING", "message": "none"})
                 return self.answer(200, {"hash": config["password_hash"]})
