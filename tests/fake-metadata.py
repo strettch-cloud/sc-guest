@@ -1,15 +1,18 @@
 #!/usr/bin/python3 -I
 """A fake metadata service for the tests, serving Metadata API v1's
-password, password ack and boot report endpoints on 169.254.169.254:80.
+password hash, password ack and boot report endpoints on 169.254.169.254:80.
 The address has to be on the container's loopback first.
 
 Usage: fake-metadata.py <dir>
 
 <dir>/config.json is read on every request:
-  password       the pending password, or null when none is pending
+  password_hash  the hash of the pending password, or null when none is
+                 pending
   ack_status     the answer to an ack while a password is pending (204)
   report_status  the answer to a boot report (204)
 An ack answered with 204 consumes the password, as the real service does.
+GET /v1/password, which only 0.1.0 read, answers 404 as the real service
+does.
 
 <dir>/requests.jsonl gets one line per request: method, path, whether the
 Metadata-Flavor header was right, the User-Agent header, and the body.
@@ -61,15 +64,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
             config = load_config()
             route = (self.command, self.path)
             if route == ("GET", "/v1/password"):
-                if config.get("password") is None:
+                return self.answer(404, {"code": "PASSWORD_NOT_PENDING", "message": "none"})
+            if route == ("GET", "/v1/password/hash"):
+                if config.get("password_hash") is None:
                     return self.answer(404, {"code": "PASSWORD_NOT_PENDING", "message": "none"})
-                return self.answer(200, {"password": config["password"]})
+                return self.answer(200, {"hash": config["password_hash"]})
             if route == ("POST", "/v1/password/ack"):
-                if config.get("password") is None:
+                if config.get("password_hash") is None:
                     return self.answer(404, {"code": "PASSWORD_NOT_PENDING", "message": "none"})
                 status = config.get("ack_status", 204)
                 if status == 204:
-                    config["password"] = None
+                    config["password_hash"] = None
                     with open(CONFIG, "w") as f:
                         json.dump(config, f)
                 return self.answer(status, None if status == 204 else {"code": "TEST", "message": "test"})

@@ -17,7 +17,7 @@ DEB="$(realpath "${1:?usage: report.sh <deb>}")"
 prepare "$DEB"
 fake_start
 trap fake_stop EXIT
-fake_config '{"password": null}'
+fake_config '{"password_hash": null}'
 
 # Sorts after the package's own settings and Ubuntu's 90_dpkg.cfg, so these
 # win. Only bootcmd runs in the network stage, so a container can run it.

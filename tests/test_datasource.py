@@ -130,7 +130,7 @@ def document_routes(document=DOCUMENT):
         "/v1/metadata.json": (200, json.dumps(document).encode()),
         "/v1/user-data": (200, USER_DATA),
         "/v1/vendor-data": (404, b'{"code": "VENDOR_DATA_NOT_SET"}'),
-        "/v1/password": (200, b'{"password": "never-read"}'),
+        "/v1/password/hash": (200, b'{"hash": "$6$never$read"}'),
     }
 
 
@@ -289,7 +289,7 @@ class TestFirstBoot(FakeHost):
     def test_never_requests_the_password(self):
         with FakeService(document_routes()) as service:
             self.datasource().get_data()
-        self.assertNotIn("/v1/password", service.paths())
+        self.assertFalse([path for path in service.paths() if path.startswith("/v1/password")])
 
     def test_no_document_means_no_datasource(self):
         routes = document_routes()
