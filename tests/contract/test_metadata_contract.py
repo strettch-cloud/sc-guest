@@ -66,7 +66,11 @@ NO_PASSWORD_PENDING = "no password is pending"
 # documentation (RFC 5737 and RFC 7042).
 INSTANCE_ID = "3f2b8c1e-5d47-4a69-9b0c-7e1f2a3b4c5d"
 BOOT_ID = "0b6f4a52-9c1d-4e3f-8a7b-6c5d4e3f2a1b"
-PASSWORD = "example-Password-1"
+# The SHA-512 crypt hash of "example-Password-1".
+PASSWORD_HASH = (
+    "$6$rounds=100000$ExampleSalt.0123$"
+    "EZdUWg71ykmdOGOLrThdVH1lhs2JcaCjuOvZSroM4BH4BfB/Pxnk8yH1nfCoxsh1iFrvjxGOtWIBf0xbdiwlh0"
+)
 
 # The largest report this version sends. The numbers are written out, not
 # read from the code: if the code's limits change, the test fails until the
@@ -109,6 +113,9 @@ DOCUMENT = {
 # two engines: the mock server's here and the verifier's on the service's side.
 ANY_VERSION = r"^sc-guest/.+$"
 JSON_CONTENT_TYPE = r"^application/json(;.*)?$"
+# Any crypt(3) hash, as the command checks it: the service may change the
+# method, but never send anything else.
+CRYPT_HASH = r"^\$[0-9a-z]+\$[./0-9A-Za-z$=,]+$"
 
 
 def load_command():
@@ -320,35 +327,36 @@ class TestDatasourceRequests(ContractTest):
 
 
 class TestPasswordRequests(ContractTest):
-    """sc-guest password reads the password, and sc-guest report confirms it."""
+    """sc-guest password reads the password's hash, and sc-guest report
+    confirms it was set."""
 
     def password_was_set(self):
         self.command_file("CLOUD_INIT_INSTANCE_ID", INSTANCE_ID + "\n")
         state = {"instance-id": INSTANCE_ID, "state": "set"}
         return self.command_file("PASSWORD_STATE", json.dumps(state))
 
-    def test_password(self):
+    def test_password_hash(self):
         json_answer(
             self.interaction(
-                "a request for the VM's root password",
+                "a request for the hash of the VM's root password",
                 PASSWORD_PENDING,
                 "GET",
-                "/v1/password",
+                "/v1/password/hash",
             ),
-            {"password": match.str(PASSWORD)},
+            {"hash": match.regex(PASSWORD_HASH, regex=CRYPT_HASH)},
         )
         with self.service():
-            self.assertEqual(command.fetch_password(), PASSWORD)
+            self.assertEqual(command.fetch_password_hash(), PASSWORD_HASH)
 
-    def test_no_password(self):
+    def test_no_password_hash(self):
         self.interaction(
-            "a request for the root password of a VM created without one",
+            "a request for the root password hash of a VM created without one",
             NO_PASSWORD_PENDING,
             "GET",
-            "/v1/password",
+            "/v1/password/hash",
         ).will_respond_with(404)
         with self.service(), mock.patch.object(command, "log"):
-            self.assertIsNone(command.fetch_password())
+            self.assertIsNone(command.fetch_password_hash())
 
     def test_ack(self):
         state = self.password_was_set()

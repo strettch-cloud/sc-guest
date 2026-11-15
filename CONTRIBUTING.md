@@ -60,7 +60,8 @@ docker run --rm --cap-add NET_ADMIN -v "$PWD":/src:ro -w /src debian:12 bash -c 
 - `units.sh` checks that the units are valid, and that
   `systemd-analyze verify` finds no ordering cycle at boot.
 - `password.sh` runs the password unit and the ack against a fake metadata
-  service: keys-only VMs, sshd's drop-in order, retries and reboots.
+  service: setting the password from its hash, logging in with it over SSH,
+  keys-only VMs, sshd's drop-in order, retries and reboots.
 - `report.sh` checks the boot report from the system's real cloud-init:
   done, a failing `bootcmd`, and a datasource that's missing or fails.
 - `root-login.sh` runs the system's real cloud-init for a VM created with an

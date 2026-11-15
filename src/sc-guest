@@ -14,9 +14,11 @@ current instance ID. A cloud-init update that changes either one could break
 them.
 """
 
+import ctypes
 import http.client
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -183,23 +185,19 @@ def output(result):
     return result.stdout.decode(errors="replace").strip()
 
 
-def check_shadow(password):
-    """Checks that root's entry in /etc/shadow matches the password, with
-    perl's crypt(): chpasswd writes yescrypt, Python's crypt module is gone
-    from Python 3.13, and perl-base is always installed."""
-    root_hash = ""
+def check_shadow(password_hash):
+    """Checks that root's entry in /etc/shadow is exactly the hash: chpasswd
+    -e writes it as given, and the login checks the typed password against
+    it."""
+    root_hash = None
     with open("/etc/shadow", encoding="utf-8") as f:
         for line in f:
             fields = line.split(":")
             if fields[0] == "root" and len(fields) > 1:
                 root_hash = fields[1]
                 break
-    if not root_hash.startswith("$"):
-        raise RuntimeError("root has no password hash in /etc/shadow after chpasswd")
-    script = 'my ($h, $p) = <STDIN>; chomp($h, $p); my $c = crypt($p, $h); exit(defined $c && $c eq $h ? 0 : 1)'
-    result = run(["perl", "-e", script], f"{root_hash}\n{password}\n".encode())
-    if result.returncode != 0:
-        raise RuntimeError("root's entry in /etc/shadow doesn't match the password after chpasswd")
+    if root_hash != password_hash:
+        raise RuntimeError("root's entry in /etc/shadow isn't the password hash after chpasswd")
 
 
 def check_sshd():
@@ -233,22 +231,54 @@ def reload_sshd():
             raise RuntimeError(f"reloading sshd failed: {output(result)}")
 
 
-def fetch_password():
-    """Returns the pending password, or None when the VM was created
-    without one. Retries exactly as the datasource does, then raises
+# A crypt(3) hash such as "$6$rounds=100000$salt$digest". Any method is
+# accepted, so the service can change it without a new package;
+# check_hash_usable refuses one this system can't check a login against.
+# Nothing that could end the chpasswd line or the shadow field gets through.
+PASSWORD_HASH = re.compile(r"\$[0-9a-z]+\$[./0-9A-Za-z$=,]+")
+CRYPT_DIGEST = re.compile(r"[./0-9A-Za-z]+")
+# The library PAM checks logins with. Python 3.13 has no crypt module.
+LIBCRYPT = "libcrypt.so.1"
+
+
+def fetch_password_hash():
+    """Returns the hash of the pending password, or None when the VM was
+    created without one. Retries exactly as the datasource does, then raises
     metadata.Unavailable: this unit runs before the rest of the boot, so it
     must not wait forever."""
-    body = metadata.get("password")
+    body = metadata.get("password/hash")
     if body is None:
         log("no password is pending")
         return None
     try:
-        password = json.loads(body)["password"]
+        password_hash = json.loads(body)["hash"]
     except (ValueError, KeyError, TypeError):
-        raise RuntimeError("GET /v1/password answered 200 without a password") from None
-    if not isinstance(password, str) or not password or any(c in password for c in "\n\r\0"):
-        raise RuntimeError("GET /v1/password answered 200 with a password chpasswd can't take")
-    return password
+        raise RuntimeError("GET /v1/password/hash answered 200 without a hash") from None
+    # The message never holds the value: the boot report carries it.
+    if not isinstance(password_hash, str) or not PASSWORD_HASH.fullmatch(password_hash):
+        raise RuntimeError("GET /v1/password/hash answered 200 with something that isn't a crypt(3) hash")
+    return password_hash
+
+
+def check_hash_usable(password_hash):
+    """Checks that a typed password can ever match the hash on this system.
+    chpasswd -e writes any string as given, so a hash with a method this
+    system lacks, or a cut-off digest, would leave root with a password no
+    one can type, and the shadow check would still pass. For a method it has,
+    libcrypt rebuilds the hash's settings with a full-length digest; for one
+    it lacks, it answers "*0" or "*1"."""
+    libcrypt = ctypes.CDLL(LIBCRYPT)
+    libcrypt.crypt.restype = ctypes.c_char_p
+    libcrypt.crypt.argtypes = (ctypes.c_char_p, ctypes.c_char_p)
+    rebuilt = (libcrypt.crypt(b"", password_hash.encode()) or b"*").decode()
+    settings, _, digest = password_hash.rpartition("$")
+    if (
+        rebuilt.startswith("*")
+        or len(rebuilt) != len(password_hash)
+        or not rebuilt.startswith(settings + "$")
+        or not CRYPT_DIGEST.fullmatch(digest)
+    ):
+        raise RuntimeError("GET /v1/password/hash answered 200 with a hash this system can't check a password against")
 
 
 def set_password():
@@ -267,15 +297,16 @@ def set_password():
         log(f"the password was already handled for this instance ({state})")
         return
 
-    password = fetch_password()
-    if password is None:
+    password_hash = fetch_password_hash()
+    if password_hash is None:
         save_password_state("none")
         return
 
-    result = run(["chpasswd"], f"root:{password}\n".encode())
+    check_hash_usable(password_hash)
+    result = run(["chpasswd", "-e"], f"root:{password_hash}\n".encode())
     if result.returncode != 0:
-        raise RuntimeError(f"chpasswd failed: {output(result)}")
-    check_shadow(password)
+        raise RuntimeError(f"chpasswd -e failed: {output(result)}")
+    check_shadow(password_hash)
     write_file(SSHD_DROP_IN, SSHD_DROP_IN_TEXT)
     check_sshd()
     reload_sshd()
