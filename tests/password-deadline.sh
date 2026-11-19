@@ -183,6 +183,9 @@ chmod 755 "$WORK/systemctl"
 
 # --- keeping one test's leftovers out of the next ---------------------------
 
+# CI runs other suites in this container first: start from a VM whose password
+# was never handled.
+rm -rf "$SSHD_FILE" /var/lib/sc-guest /run/sc-guest
 cp -p /etc/shadow "$ORIG/shadow"
 for binary in $BINARIES; do cp -p "$binary" "$ORIG/bin/"; done
 for directory in $DIRECTORIES; do
