@@ -537,7 +537,7 @@ hash_answered_just_before_the_limit() {
 body_trickle_cut_off() {
   local limit=3
   cloud_init_found_strettch_cloud
-  answer password/hash '{"status": 200, "body": "{\"hash\": \"'"$HASH"'\"}                                                                                                       ", "trickle_body": {"every": 0.5, "for": 40}}'
+  answer password/hash '{"status": 200, "body": "{\"hash\": \"'"$HASH"'\"}'"$(printf '%*s' 103 '')"'", "trickle_body": {"every": 0.5, "for": 40}}'
 
   run_unit_with_limit "$limit"
 
@@ -575,7 +575,7 @@ header_trickle_cut_off() {
 error_body_trickle_cut_off() {
   local limit=3
   cloud_init_found_strettch_cloud
-  answer password/hash '{"status": 503, "body": "{\"code\": \"unavailable\"}                                                                                                           ", "trickle_body": {"every": 0.5, "for": 15}}'
+  answer password/hash '{"status": 503, "body": "{\"code\": \"unavailable\"}'"$(printf '%*s' 107 '')"'", "trickle_body": {"every": 0.5, "for": 15}}'
 
   run_unit_with_limit "$limit"
 
