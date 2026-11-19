@@ -325,7 +325,13 @@ def cloud_config_parts(data):
         if part.is_multipart():
             continue
         payload = part.get_payload(decode=True) or b""
-        if part.get_content_type() == "text/cloud-config" and not payload.startswith(b"#"):
+        # cloud-init goes by the part's type, so its first line may be any
+        # comment. A Jinja template is still left out.
+        if (
+            part.get_content_type() == "text/cloud-config"
+            and not payload.startswith(b"#cloud-config")
+            and not payload.startswith(b"## template:")
+        ):
             payload = b"#cloud-config\n" + payload
         yield from cloud_config_parts(payload)
 
@@ -367,7 +373,7 @@ def set_password(deadline):
     os.sync()
     save_password_state("set")
     if disable_root:
-        log("set root's password; the user data sets disable_root, so root can't log in over SSH")
+        log("set root's password; the user data sets disable_root, so the sshd file allowing root password login wasn't written")
     else:
         log("set root's password and allowed password login over SSH")
 

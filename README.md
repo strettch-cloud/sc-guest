@@ -11,7 +11,8 @@ It:
 - lets root log in over SSH with the VM's SSH keys
 - on the first boot of a VM created with a root password, sets that password
   and allows password login over SSH, unless the user data sets
-  `disable_root: true`: root then uses the password on the console only. The
+  `disable_root: true`: then the sshd file allowing root password login isn't
+  written, and one already on disk from an earlier instance stays. The
   metadata service holds only the password's hash, which goes into
   `/etc/shadow` as it is. If the metadata service gives no usable answer
   within 90 s, the password isn't set on that boot, the boot report says why,

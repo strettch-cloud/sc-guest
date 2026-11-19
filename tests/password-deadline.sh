@@ -14,7 +14,7 @@
 
 set -u
 
-DEB=${1:?usage: $0 <sc-guest .deb>}
+DEB=$(realpath "${1:?usage: $0 <sc-guest .deb>}")
 COMMAND=/usr/lib/sc-guest/sc-guest
 STATUS=/run/cloud-init/status.json
 INSTANCE_ID_FILE=/var/lib/cloud/data/instance-id
@@ -685,7 +685,7 @@ disable_root_case() {
 
 disable_root_true() {
   disable_root_case "$(user_data $'#cloud-config\ndisable_root: true\n')" absent
-  expect_printed "set root's password; the user data sets disable_root, so root can't log in over SSH"
+  expect_printed "set root's password; the user data sets disable_root, so the sshd file allowing root password login wasn't written"
 }
 
 disable_root_true_spellings() {
@@ -756,6 +756,10 @@ disable_root_last_part_silent() {
 
 disable_root_mime_with_script() {
   disable_root_case "$(user_data "$(mime x-shellscript $'#!/bin/sh\necho hi\n' cloud-config $'disable_root: true\n')")" absent
+}
+
+disable_root_mime_starting_with_a_comment() {
+  disable_root_case "$(user_data "$(mime cloud-config $'# customer settings\ndisable_root: true\n')")" absent
 }
 
 disable_root_gzip() {
@@ -965,6 +969,7 @@ run_test "with several MIME parts, a last part setting disable_root true wins" d
 run_test "with several MIME parts, a last part setting disable_root false wins" disable_root_last_part_false
 run_test "a later MIME part that doesn't set disable_root leaves an earlier true in force" disable_root_last_part_silent
 run_test "a text/cloud-config MIME part without the #cloud-config line is read" disable_root_mime_with_script
+run_test "a text/cloud-config MIME part starting with a comment line is read" disable_root_mime_starting_with_a_comment
 run_test "gzipped cloud-config is read" disable_root_gzip
 run_test "gzipped MIME is read" disable_root_gzip_mime
 run_test "Jinja user data counts as not setting disable_root" disable_root_jinja
