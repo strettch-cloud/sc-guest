@@ -12,6 +12,7 @@ set -euo pipefail
 
 DEB="$(realpath "${1:?usage: datasource.sh <deb>}")"
 TEST="$(realpath "$(dirname "$0")/test_datasource.py")"
+DEADLINE_TEST="$(realpath "$(dirname "$0")/test_metadata_deadline.py")"
 REPORT="$(realpath -m "${COVERAGE_REPORT:-/dev/null}")"
 SITE=/usr/lib/python3/dist-packages
 MIN_COVERAGE=98
@@ -37,12 +38,15 @@ apt-get install --yes --quiet --quiet "$DEB" python3-coverage
 # test runs from an empty directory and can only import the installed code.
 # coverage's data goes there too, because the source may be mounted read-only.
 WORK="$(mktemp -d)"
-cp "$TEST" "$WORK/"
+cp "$TEST" "$DEADLINE_TEST" "$WORK/"
 cd "$WORK"
 export COVERAGE_FILE="$WORK/.coverage"
 python3 -I -m coverage run --branch \
   --include="$SITE/DataSourceStrettchCloud.py,$SITE/sc_guest/*" \
   test_datasource.py -v
+python3 -I -m coverage run --append --branch \
+  --include="$SITE/DataSourceStrettchCloud.py,$SITE/sc_guest/*" \
+  -m unittest test_metadata_deadline -v
 
 status=0
 python3 -I -m coverage report --show-missing --precision=1 \

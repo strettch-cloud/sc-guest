@@ -74,6 +74,9 @@ jobs:
       - name: Password and ack
         run: tests/password.sh dist/sc-guest_*_all.deb
 
+      - name: Password unit's 90 s limit and disable_root
+        run: tests/password-deadline.sh dist/sc-guest_*_all.deb
+
       - name: Boot report
         run: tests/report.sh dist/sc-guest_*_all.deb
 
