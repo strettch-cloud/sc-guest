@@ -809,6 +809,13 @@ disable_root_deep_yaml() {
   disable_root_case "$file" written
 }
 
+disable_root_bad_date() {
+  local file
+  file=$(mktemp -p "$WORK/bodies")
+  printf '#cloud-config\nrenew_on: 2026-02-31\ndisable_root: true\n' > "$file"
+  disable_root_case "$file" written
+}
+
 # --- setting the password and sshd -------------------------------------------------
 
 fake_chpasswd() {
@@ -981,6 +988,7 @@ run_test "cloud-config that isn't valid YAML counts as not setting disable_root"
 run_test "a shell script counts as not setting disable_root" disable_root_script
 run_test "unreadable gzip counts as not setting disable_root" disable_root_binary
 run_test "cloud-config nested too deeply to read counts as not setting disable_root" disable_root_deep_yaml
+run_test "cloud-config with an impossible date counts as not setting disable_root" disable_root_bad_date
 run_test "a failing chpasswd sets nothing and fails with chpasswd's output" chpasswd_fails
 run_test "a shadow entry that isn't the hash after chpasswd fails and saves no state" shadow_not_the_hash
 run_test "without sshd, the password stays set, the sshd file stays, no state is saved and the unit fails" sshd_missing

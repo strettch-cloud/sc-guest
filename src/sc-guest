@@ -64,6 +64,12 @@ CLOUD_INIT_INSTANCE_ID = "/var/lib/cloud/data/instance-id"
 DATASOURCE = "DataSourceStrettchCloud"
 BOOT_ID = "/proc/sys/kernel/random/boot_id"
 
+# The user-data setting that keeps root from logging in over SSH, and the
+# first lines cloud-init uses to tell a cloud-config from a Jinja template.
+DISABLE_ROOT = "disable_root"
+CLOUD_CONFIG_HEADER = b"#cloud-config"
+JINJA_HEADER = b"## template:"
+
 # The platform's limits on a boot report.
 MAX_REPORT_ERRORS = 20
 MAX_ERROR_BYTES = 2048
@@ -301,10 +307,12 @@ def disable_root_in(user_data):
     for part in cloud_config_parts(user_data):
         try:
             config = yaml.safe_load(part)
-        except (yaml.YAMLError, RecursionError):
+        # The errors cloud-init's own reading skips a part for; ValueError
+        # comes from a value such as the date 2026-02-31.
+        except (yaml.YAMLError, TypeError, ValueError, RecursionError):
             continue
-        if isinstance(config, dict) and "disable_root" in config:
-            value = config["disable_root"]
+        if isinstance(config, dict) and DISABLE_ROOT in config:
+            value = config[DISABLE_ROOT]
     # cloud-init's own reading of a yes/no setting.
     return str(value).lower() in ("true", "1", "on", "yes")
 
@@ -315,7 +323,7 @@ def cloud_config_parts(data):
             data = gzip.decompress(data)
         except (OSError, EOFError, zlib.error):
             return
-    if data.startswith(b"#cloud-config"):
+    if data.startswith(CLOUD_CONFIG_HEADER):
         yield data
         return
     message = email.message_from_bytes(data)
@@ -329,10 +337,10 @@ def cloud_config_parts(data):
         # comment. A Jinja template is still left out.
         if (
             part.get_content_type() == "text/cloud-config"
-            and not payload.startswith(b"#cloud-config")
-            and not payload.startswith(b"## template:")
+            and not payload.startswith(CLOUD_CONFIG_HEADER)
+            and not payload.startswith(JINJA_HEADER)
         ):
-            payload = b"#cloud-config\n" + payload
+            payload = CLOUD_CONFIG_HEADER + b"\n" + payload
         yield from cloud_config_parts(payload)
 
 
