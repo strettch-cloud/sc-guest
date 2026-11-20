@@ -346,7 +346,7 @@ class TestPasswordRequests(ContractTest):
             {"hash": match.regex(PASSWORD_HASH, regex=CRYPT_HASH)},
         )
         with self.service():
-            self.assertEqual(command.fetch_password_hash(), PASSWORD_HASH)
+            self.assertEqual(command.fetch_password_hash(metadata.Deadline(command.PASSWORD_DEADLINE)), PASSWORD_HASH)
 
     def test_no_password_hash(self):
         self.interaction(
@@ -356,7 +356,7 @@ class TestPasswordRequests(ContractTest):
             "/v1/password/hash",
         ).will_respond_with(404)
         with self.service(), mock.patch.object(command, "log"):
-            self.assertIsNone(command.fetch_password_hash())
+            self.assertIsNone(command.fetch_password_hash(metadata.Deadline(command.PASSWORD_DEADLINE)))
 
     def test_ack(self):
         state = self.password_was_set()
