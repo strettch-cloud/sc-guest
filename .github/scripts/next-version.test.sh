@@ -506,6 +506,22 @@ test_breaking_change_hyphen_footer_is_listed() {
   expect_in_file "$summary_file" "fix: report disk usage in bytes" "the run summary"
 }
 
+# A long body after the footer must still be read in full.
+test_breaking_change_footer_before_long_body_is_listed() {
+  new_repo
+  commit "feat: report disk usage"
+  tag "0.3.1"
+  commit "fix: report disk usage in bytes" \
+    "BREAKING CHANGE: dashboards reading kilobytes must convert
+
+$(head -c 300000 /dev/zero | tr '\0' 'a' | fold -w 72)"
+
+  run_release stable
+
+  expect_version "0.3.2"
+  expect_in_file "$summary_file" "fix: report disk usage in bytes" "the run summary"
+}
+
 test_breaking_feat_beta_is_listed() {
   new_repo
   commit "feat: report disk usage"
@@ -745,6 +761,8 @@ run_test "a fix with a BREAKING CHANGE footer is listed and raises only the patc
   test_breaking_change_footer_is_listed_and_raises_patch
 run_test "a fix with a BREAKING-CHANGE footer is listed and raises only the patch number" \
   test_breaking_change_hyphen_footer_is_listed
+run_test "a BREAKING CHANGE footer followed by a long body is still listed" \
+  test_breaking_change_footer_before_long_body_is_listed
 run_test "a beta run lists a breaking feat in the run summary and releases 0.4.0-beta.1" \
   test_breaking_feat_beta_is_listed
 run_test "a breaking commit released before stable 1.0.0 is not listed again" \
