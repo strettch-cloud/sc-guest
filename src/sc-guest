@@ -7,14 +7,16 @@ platform whether this boot's setup succeeded.
   sc-guest report     run once per boot by sc-guest-report.service, in the
                       background once the network is up
 
-Only the Python standard library and this package's sc_guest module are
-used, never cloud-init's code, so changes to cloud-init's code can't break
+Only the Python standard library, PyYAML and this package's sc_guest module
+are used, never cloud-init's code, so changes to cloud-init's code can't break
 either command. cloud-init's files are read as data: its status file and the
 current instance ID. A cloud-init update that changes either one could break
 them.
 """
 
 import ctypes
+import email
+import gzip
 import http.client
 import json
 import os
@@ -25,6 +27,7 @@ import sys
 import tempfile
 import threading
 import time
+import zlib
 
 from sc_guest import __version__, metadata
 
@@ -33,6 +36,10 @@ METADATA_HOST = "169.254.169.254"
 # gets its answer instead of a timeout.
 ATTEMPT_TIMEOUT = 6
 MAX_RESPONSE_BYTES = 64 * 1024
+# The password unit runs before the rest of the boot, so it stops waiting for
+# the metadata service this long after it starts. Setting the password and
+# sshd afterwards is not cut off.
+PASSWORD_DEADLINE = 90
 
 STATE_DIR = "/var/lib/sc-guest"
 PASSWORD_STATE = STATE_DIR + "/password.json"
@@ -56,6 +63,12 @@ CLOUD_INIT_INSTANCE_ID = "/var/lib/cloud/data/instance-id"
 # sometimes followed by details in brackets.
 DATASOURCE = "DataSourceStrettchCloud"
 BOOT_ID = "/proc/sys/kernel/random/boot_id"
+
+# The user-data setting that keeps root from logging in over SSH, and the
+# first lines cloud-init uses to tell a cloud-config from a Jinja template.
+DISABLE_ROOT = "disable_root"
+CLOUD_CONFIG_HEADER = b"#cloud-config"
+JINJA_HEADER = b"## template:"
 
 # The platform's limits on a boot report.
 MAX_REPORT_ERRORS = 20
@@ -241,12 +254,11 @@ CRYPT_DIGEST = re.compile(r"[./0-9A-Za-z]+")
 LIBCRYPT = "libcrypt.so.1"
 
 
-def fetch_password_hash():
+def fetch_password_hash(deadline):
     """Returns the hash of the pending password, or None when the VM was
-    created without one. Retries exactly as the datasource does, then raises
-    metadata.Unavailable: this unit runs before the rest of the boot, so it
-    must not wait forever."""
-    body = metadata.get("password/hash")
+    created without one. Retries as the datasource does until the deadline,
+    then raises metadata.Unavailable."""
+    body = metadata.get("password/hash", deadline)
     if body is None:
         log("no password is pending")
         return None
@@ -281,7 +293,58 @@ def check_hash_usable(password_hash):
         raise RuntimeError("GET /v1/password/hash answered 200 with a hash this system can't check a password against")
 
 
-def set_password():
+def disable_root_in(user_data):
+    """Whether the customer's user data sets disable_root to true. cloud-init
+    hasn't stored this instance's user data yet when this unit runs, so this
+    reads it as cloud-init would: gzip, MIME multipart, and #cloud-config
+    parts, the last part that sets it winning. A part it can't read here, such
+    as a Jinja template or an #include, counts as not setting it."""
+    # Imported here, not at the top, so loading this file needs PyYAML only
+    # when user data is read.
+    import yaml
+
+    value = None
+    for part in cloud_config_parts(user_data):
+        try:
+            config = yaml.safe_load(part)
+        # The errors cloud-init's own reading skips a part for; ValueError
+        # comes from a value such as the date 2026-02-31.
+        except (yaml.YAMLError, TypeError, ValueError, RecursionError):
+            continue
+        if isinstance(config, dict) and DISABLE_ROOT in config:
+            value = config[DISABLE_ROOT]
+    # cloud-init's own reading of a yes/no setting.
+    return str(value).lower() in ("true", "1", "on", "yes")
+
+
+def cloud_config_parts(data):
+    if data[:2] == b"\x1f\x8b":
+        try:
+            data = gzip.decompress(data)
+        except (OSError, EOFError, zlib.error):
+            return
+    if data.startswith(CLOUD_CONFIG_HEADER):
+        yield data
+        return
+    message = email.message_from_bytes(data)
+    if not message.is_multipart():
+        return
+    for part in message.walk():
+        if part.is_multipart():
+            continue
+        payload = part.get_payload(decode=True) or b""
+        # cloud-init goes by the part's type, so its first line may be any
+        # comment. A Jinja template is still left out.
+        if (
+            part.get_content_type() == "text/cloud-config"
+            and not payload.startswith(CLOUD_CONFIG_HEADER)
+            and not payload.startswith(JINJA_HEADER)
+        ):
+            payload = CLOUD_CONFIG_HEADER + b"\n" + payload
+        yield from cloud_config_parts(payload)
+
+
+def set_password(deadline):
     status = read_json(CLOUD_INIT_STATUS)
     v1 = status.get("v1") if isinstance(status, dict) else None
     datasource = v1.get("datasource") if isinstance(v1, dict) else None
@@ -297,29 +360,36 @@ def set_password():
         log(f"the password was already handled for this instance ({state})")
         return
 
-    password_hash = fetch_password_hash()
+    password_hash = fetch_password_hash(deadline)
     if password_hash is None:
         save_password_state("none")
         return
 
     check_hash_usable(password_hash)
+    user_data = metadata.get("user-data", deadline)
+    disable_root = user_data is not None and disable_root_in(user_data)
     result = run(["chpasswd", "-e"], f"root:{password_hash}\n".encode())
     if result.returncode != 0:
         raise RuntimeError(f"chpasswd -e failed: {output(result)}")
     check_shadow(password_hash)
-    write_file(SSHD_DROP_IN, SSHD_DROP_IN_TEXT)
-    check_sshd()
-    reload_sshd()
+    if not disable_root:
+        write_file(SSHD_DROP_IN, SSHD_DROP_IN_TEXT)
+        check_sshd()
+        reload_sshd()
     # The ack lets the platform delete the password, so the change must be on
     # disk before the state that leads to the ack.
     os.sync()
     save_password_state("set")
-    log("set root's password and allowed password login over SSH")
+    if disable_root:
+        log("set root's password; the user data sets disable_root, so the sshd file allowing root password login wasn't written")
+    else:
+        log("set root's password and allowed password login over SSH")
 
 
 def password_command():
+    deadline = metadata.Deadline(PASSWORD_DEADLINE)
     try:
-        set_password()
+        set_password(deadline)
     except Exception as error:
         message = f"password: {error}"
         log(message)
