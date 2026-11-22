@@ -101,21 +101,35 @@ ship instead, as the nightly run does.
 | `nightly.yml` | every night | the same tests with each system's proposed cloud-init |
 | `beta.yml` | every merge to `main` | beta pre-release |
 | `release.yml` | manual, from `main` | stable release, with that version's contract |
+| `pr-title.yml` | every pull request, and title edits | checks the title follows Conventional Commits |
 
 ## Commits and pull requests
 
 - Commit subjects and pull request titles follow
   [Conventional Commits](https://www.conventionalcommits.org/), such as
-  `feat:`, `fix:` and `docs:`. The release notes are built from them.
+  `feat:`, `fix:` and `docs:`. The release notes are built from them, and
+  they set the next version. `pr-title.yml` checks every pull request title;
+  run `git config core.hooksPath .githooks` to check commit messages locally
+  too (needs Node 22.12 or later).
 - Pull requests are squash-merged.
 - The pull request template asks what changed, why, and how it was tested.
 
 ## Versions and releases
 
-Stable releases are tagged `X.Y.Z` and betas `X.Y.Z-beta.N`. Inside the
-package, a beta's version is `X.Y.Z~beta.N`, because apt sorts `~` before
-anything, so a beta is older than its stable release. Release files are named
-after the tag, for example `sc-guest_1.2.0-beta.3_all.deb`.
+Stable releases are tagged `X.Y.Z` and betas `X.Y.Z-beta.N`. Nobody types a
+version: `.github/scripts/next-version.sh` derives it from the commit types
+since the last stable tag. Any `feat` raises the minor number, anything else
+the patch number. A breaking change (`!` or a `BREAKING CHANGE` footer) never
+raises the major number by itself; it is listed in the run summary, and a
+maintainer releases a major version by ticking "major" on `release.yml`. A
+beta is `X.Y.Z-beta.N`, where `X.Y.Z` is the next stable version and `N`
+continues from that version's betas; a merge whose commit already has the
+stable tag makes no beta. The script fails when there is no `X.Y.Z` tag at
+all, which means the tags were not fetched.
+
+Inside the package, a beta's version is `X.Y.Z~beta.N`, because apt sorts `~`
+before anything, so a beta is older than its stable release. Release files are
+named after the tag, for example `sc-guest_1.2.0-beta.3_all.deb`.
 
 Every release carries a build attestation, which `gh attestation verify`
 checks.

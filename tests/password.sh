@@ -124,7 +124,7 @@ echo "== first boot with a pending password"
 first_boot iid-1
 pending "first boot: pässwörd" Ab3dEf6hIj9lMn0p
 password_unit 0
-expect_requests "GET /v1/password/hash"
+expect_requests $'GET /v1/password/hash\nGET /v1/user-data'
 [[ "$(getent shadow root | cut -d: -f2)" == "$(hash_of "first boot: pässwörd" Ab3dEf6hIj9lMn0p)" ]] ||
     fail "root's entry in /etc/shadow isn't the hash"
 root_password_is "first boot: pässwörd" || fail "root's password wasn't set"
@@ -164,7 +164,7 @@ echo "== a VM made from a template of this one gets its own password; an ack tha
 first_boot iid-2
 pending "second VM" second.VM.salt.. '"ack_status": 503'
 password_unit 0
-expect_requests "GET /v1/password/hash"
+expect_requests $'GET /v1/password/hash\nGET /v1/user-data'
 root_password_is "second VM" || fail "the new instance's password wasn't set"
 "$SC_GUEST" report &
 pid=$!
@@ -190,7 +190,7 @@ pending "third VM" third.VM.salt...
 password_unit 0
 fake_config '{"password_hash": null}'
 reporter
-expect_requests $'GET /v1/password/hash\nPOST /v1/password/ack\nPOST /v1/report/boot'
+expect_requests $'GET /v1/password/hash\nGET /v1/user-data\nPOST /v1/password/ack\nPOST /v1/report/boot'
 expect_state '{"instance-id": "iid-3", "state": "acked"}'
 
 echo "== keys only: the password unit sets nothing and never asks again"
@@ -217,7 +217,7 @@ pending "fifth VM" fifth.VM.salt...
 password_unit 1
 grep -q 'sshd -T shows passwordauthentication no' /run/sc-guest/password-error || fail "error: $(cat /run/sc-guest/password-error)"
 reporter
-expect_requests $'GET /v1/password/hash\nPOST /v1/report/boot'
+expect_requests $'GET /v1/password/hash\nGET /v1/user-data\nPOST /v1/report/boot'
 [[ "$(report_field status)" == '"error"' ]] || fail "report status $(report_field status)"
 [[ "$(report_field errors)" == '["password: sshd -T shows passwordauthentication no, not yes"]' ]] || fail "report errors $(report_field errors)"
 expect_state '{"instance-id": "iid-4", "state": "none"}'
@@ -226,7 +226,7 @@ echo "   the next boot tries again"
 reboot_vm
 password_unit 0
 reporter
-expect_requests $'GET /v1/password/hash\nPOST /v1/password/ack\nPOST /v1/report/boot'
+expect_requests $'GET /v1/password/hash\nGET /v1/user-data\nPOST /v1/password/ack\nPOST /v1/report/boot'
 expect_state '{"instance-id": "iid-5", "state": "acked"}'
 
 echo "== an answer that isn't a hash: nothing is set, no ack, and the error doesn't hold the answer"
@@ -277,7 +277,7 @@ kill -0 "$pid" || fail "the reporter gave up while the metadata service was down
 fake_start
 wait_for "$pid" 60
 [[ $WAIT_RC -eq 0 ]] || fail "sc-guest report exited $WAIT_RC"
-expect_requests $'GET /v1/password/hash\nPOST /v1/password/ack\nPOST /v1/report/boot'
+expect_requests $'GET /v1/password/hash\nGET /v1/user-data\nPOST /v1/password/ack\nPOST /v1/report/boot'
 expect_state '{"instance-id": "iid-6", "state": "acked"}'
 
 echo "== metadata service never answers: the password unit gives up as the datasource does, the next boot tries again"
@@ -310,7 +310,7 @@ report_field errors | grep -q '^\["password: GET http://169.254.169.254/v1/passw
 reboot_vm
 password_unit 0
 reporter
-expect_requests $'GET /v1/password/hash\nPOST /v1/password/ack\nPOST /v1/report/boot'
+expect_requests $'GET /v1/password/hash\nGET /v1/user-data\nPOST /v1/password/ack\nPOST /v1/report/boot'
 root_password_is "seventh VM" || fail "the next boot didn't set the password"
 expect_state '{"instance-id": "iid-7", "state": "acked"}'
 
