@@ -18,7 +18,7 @@ printf '%s\tpriority:%s\n' \
     http://archive.ubuntu.com/ubuntu/ 2 \
     http://security.ubuntu.com/ubuntu/ 3 > "$list"
 
-# 22.04 lists its sources in sources.list, 24.04 in ubuntu.sources.
+# 22.04 lists its sources in sources.list, 24.04 and later in ubuntu.sources.
 for sources in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do
     [ -f "$sources" ] || continue
     sed -i -E "s#http://(archive|security)\.ubuntu\.com/ubuntu/?#mirror+file:$list#" "$sources"

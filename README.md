@@ -26,7 +26,7 @@ It:
 It's only for Strettch Cloud VMs. On any other cloud, cloud-init finds no
 datasource and sets up nothing, not even the network.
 
-Supported systems: Ubuntu 22.04 and 24.04, Debian 12 and 13.
+Supported systems: Ubuntu 22.04, 24.04 and 26.04, Debian 12 and 13.
 
 ## Install
 
