@@ -22,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ['ubuntu:22.04', 'ubuntu:24.04', 'debian:12', 'debian:13']
+        os: ['ubuntu:22.04', 'ubuntu:24.04', 'ubuntu:26.04', 'debian:12', 'debian:13']
     # Google's mirror of the official images avoids Docker Hub's pull limits.
     # NET_ADMIN lets the tests put the metadata service's address on the
     # container's loopback.

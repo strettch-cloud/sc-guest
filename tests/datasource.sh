@@ -46,7 +46,7 @@ python3 -I -m coverage run --branch \
   test_datasource.py -v
 python3 -I -m coverage run --append --branch \
   --include="$SITE/DataSourceStrettchCloud.py,$SITE/sc_guest/*" \
-  -m unittest test_metadata_deadline -v
+  test_metadata_deadline.py -v
 
 status=0
 python3 -I -m coverage report --show-missing --precision=1 \
